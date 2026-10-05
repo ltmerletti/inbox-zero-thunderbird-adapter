@@ -1,0 +1,40 @@
+name: Upstream compatibility
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+  schedule:
+    - cron: '23 14 * * 1'
+permissions:
+  contents: read
+jobs:
+  compatibility:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        upstream: [pinned, latest]
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          path: thunderbird-inbox-zero
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+      - name: Prepare upstream source and check patches
+        working-directory: thunderbird-inbox-zero
+        env:
+          UPSTREAM_VERSION: ${{ matrix.upstream }}
+        run: |
+          if [ "$UPSTREAM_VERSION" = latest ]; then
+            node scripts/prepare-upstreams.mjs --latest
+          else
+            node scripts/prepare-upstreams.mjs
+          fi
+      - name: Install bridge test dependencies
+        working-directory: thunderbird-cli
+        run: npm ci --ignore-scripts
+      - name: Test the bridge, reader extension, and Inbox Zero mapping with fake mail
+        working-directory: thunderbird-inbox-zero
+        run: npm test

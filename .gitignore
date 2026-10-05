@@ -1,0 +1,17 @@
+.private/
+Thunderbird.app/
+Thunderbird.dmg
+*.xpi
+extension/config.js
+profile/
+
+# Local data and generated artifacts
+.env*
+!.env.example
+node_modules/
+*.log
+*.jpg
+*.jpeg
+*.png
+.DS_Store
+.checksums

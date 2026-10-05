@@ -1,0 +1,1811 @@
+diff --git a/apps/web/.env.example b/apps/web/.env.example
+--- a/apps/web/.env.example
++++ b/apps/web/.env.example
+@@ -1,3 +1,9 @@
++# Optional local Thunderbird provider. Bind the app only to loopback.
++LOCAL_THUNDERBIRD_ENABLED=false
++# THUNDERBIRD_BRIDGE_URL=http://127.0.0.1:7700
++# THUNDERBIRD_BRIDGE_TOKEN=<private bridge token; never expose to the browser>
++LOCAL_AI_DISABLED=false
++
+ NEXT_PUBLIC_BASE_URL=http://localhost:3000
+ 
+ DATABASE_URL="postgresql://postgres:password@localhost:5432/inboxzero?schema=public"
+
+diff --git a/apps/web/app/(app)/[emailAccountId]/mail/MailShell.tsx b/apps/web/app/(app)/[emailAccountId]/mail/MailShell.tsx
+index 8a96fc8..b1fa72a 100644
+--- a/apps/web/app/(app)/[emailAccountId]/mail/MailShell.tsx
++++ b/apps/web/app/(app)/[emailAccountId]/mail/MailShell.tsx
+@@ -124,6 +124,7 @@ export function MailShell() {
+   const { data: accountsData } = useAccounts();
+   const isGoogle = isGoogleProvider(provider);
+   const isOutlook = isMicrosoftProvider(provider);
++  const hasFolders = isOutlook || provider === "thunderbird";
+   const { userLabels } = useEmailLabels();
+   const { userLabels: allLabels, mutate: mutateLabels } = useLabels();
+   const { folders } = useFolders(provider);
+@@ -764,6 +765,7 @@ export function MailShell() {
+   );
+ 
+   useEffect(() => {
++    if (provider === "thunderbird") return;
+     if (!openReaderThreadKey) {
+       readAttemptedForOpenThread.current = null;
+       return;
+@@ -786,6 +788,7 @@ export function MailShell() {
+     readAttemptedForOpenThread.current = openThreadKey;
+     markRead([openThreadKey]);
+   }, [
++    provider,
+     isOpenThreadUnread,
+     markRead,
+     openMessages.length,
+@@ -1257,10 +1260,10 @@ export function MailShell() {
+   );
+   const searchFolders = useMemo(
+     () =>
+-      isOutlook && !isAllAccounts
++      hasFolders && !isAllAccounts
+         ? getMailSearchFolders(folders)
+         : NO_SEARCH_OPTIONS,
+-    [folders, isAllAccounts, isOutlook],
++    [folders, isAllAccounts, hasFolders],
+   );
+   const showSplitTabs = !isScoped && !searchQuery;
+   const threadCount = threads.length;
+@@ -1378,7 +1381,7 @@ export function MailShell() {
+                 searchFolders={searchFolders}
+                 searchVariant={getMailSearchVariant({
+                   isAllAccounts,
+-                  isOutlook,
++                  isOutlook: hasFolders,
+                 })}
+                 onToggleLayout={toggleLayout}
+                 expandedPreview={expandedPreview}
+diff --git a/apps/web/app/(app)/[emailAccountId]/mail/MailShellSidebar.tsx b/apps/web/app/(app)/[emailAccountId]/mail/MailShellSidebar.tsx
+index 6e93172..452b954 100644
+--- a/apps/web/app/(app)/[emailAccountId]/mail/MailShellSidebar.tsx
++++ b/apps/web/app/(app)/[emailAccountId]/mail/MailShellSidebar.tsx
+@@ -81,6 +81,7 @@ export const MailShellSidebar = memo(function MailShellSidebar({
+   const { emailAccountId, provider } = useAccount();
+   const isGoogle = isGoogleProvider(provider);
+   const isOutlook = isMicrosoftProvider(provider);
++  const hasFolders = isOutlook || provider === "thunderbird";
+   const terminology = getEmailTerminology(provider);
+   const { userLabels: allLabels, mutate: mutateLabels } = useLabels();
+   const { folders, mutate: mutateFolders } = useFolders(provider);
+@@ -201,7 +202,7 @@ export const MailShellSidebar = memo(function MailShellSidebar({
+           activeFolderId={activeFolderId}
+           hrefFor={hrefFor}
+           labels={isAllAccounts ? NO_LABELS : allLabels}
+-          folders={isAllAccounts || !isOutlook ? NO_FOLDERS : folders}
++          folders={isAllAccounts || !hasFolders ? NO_FOLDERS : folders}
+           countsById={isAllAccounts ? NO_COUNTS : countsById}
+           categories={
+             isAllAccounts
+diff --git a/apps/web/app/(app)/layout.tsx b/apps/web/app/(app)/layout.tsx
+index 63984ac..5b2197c 100644
+--- a/apps/web/app/(app)/layout.tsx
++++ b/apps/web/app/(app)/layout.tsx
+@@ -25,6 +25,7 @@ import { captureException } from "@/utils/error";
+ import prisma from "@/utils/prisma";
+ import { createScopedLogger } from "@/utils/logger";
+ import { booleanString } from "@/utils/zod";
++import { env } from "@/env";
+ 
+ const logger = createScopedLogger("AppLayout");
+ 
+@@ -97,6 +98,14 @@ export default async function AppLayout({
+               <AiAutomationStatusBanner />
+               <ErrorMessages />
+               <ProviderRateLimitBanner />
++              {env.LOCAL_THUNDERBIRD_ENABLED && (
++                <div
++                  role="status"
++                  className="border-b bg-muted px-4 py-2 text-sm text-muted-foreground"
++                >
++                  Mail through Thunderbird · read-only · AI disabled
++                </div>
++              )}
+               {children}
+             </SideNavWithTopNav>
+             <EmailViewer />
+@@ -106,7 +115,7 @@ export default async function AppLayout({
+               <PostHogIdentify />
+ 
+               <CommandK />
+-              <AssessUser />
++              {!env.LOCAL_AI_DISABLED && <AssessUser />}
+               <SentryIdentify email={session.user.email} />
+             </ErrorBoundary>
+           </MailEngineRuntime>
+diff --git a/apps/web/app/(landing)/login/page.tsx b/apps/web/app/(landing)/login/page.tsx
+index 40d2c82..9a718c5 100644
+--- a/apps/web/app/(landing)/login/page.tsx
++++ b/apps/web/app/(landing)/login/page.tsx
+@@ -3,6 +3,8 @@ import type { Metadata } from "next";
+ import { redirect } from "next/navigation";
+ import Link from "next/link";
+ import { LoginForm } from "@/app/(landing)/login/LoginForm";
++import { ThunderbirdLoginForm } from "@/app/(landing)/login/ThunderbirdLoginForm";
++import { isLocalThunderbirdEnabled } from "@/utils/email/thunderbird-config";
+ import {
+   getEmailAlreadyLinkedDescription,
+   getRequiresReconsentDescription,
+@@ -54,6 +56,7 @@ export default async function AuthenticationPage(props: {
+           </p>
+         </div>
+         <div className="mt-4">
++          {isLocalThunderbirdEnabled() && <ThunderbirdLoginForm />}
+           <Suspense>
+             <LoginForm
+               enabledProviders={enabledProviders}
+diff --git a/apps/web/app/api/user/folders/route.ts b/apps/web/app/api/user/folders/route.ts
+index f5e4463..a51acd5 100644
+--- a/apps/web/app/api/user/folders/route.ts
++++ b/apps/web/app/api/user/folders/route.ts
+@@ -8,9 +8,12 @@ export type GetFoldersResponse = Awaited<ReturnType<typeof getFolders>>;
+ export const GET = withEmailProvider("user/folders", async (request) => {
+   const emailProvider = request.emailProvider;
+ 
+-  if (!isMicrosoftProvider(emailProvider.name)) {
++  if (
++    !isMicrosoftProvider(emailProvider.name) &&
++    emailProvider.name !== "thunderbird"
++  ) {
+     return NextResponse.json(
+-      { error: "Only Microsoft email providers are supported" },
++      { error: "This provider does not expose mailbox folders" },
+       { status: 400 },
+     );
+   }
+diff --git a/apps/web/app/layout.tsx b/apps/web/app/layout.tsx
+index ef3a1af..8897f45 100644
+--- a/apps/web/app/layout.tsx
++++ b/apps/web/app/layout.tsx
+@@ -184,10 +184,10 @@ export default async function RootLayout({
+             <Toaster />
+           </GlobalProviders>
+         </PostHogProvider>
+-        <Analytics />
++        {!env.LOCAL_THUNDERBIRD_ENABLED && <Analytics />}
+         <AxiomWebVitals />
+         <UTM />
+-        <SpeedInsights />
++        {!env.LOCAL_THUNDERBIRD_ENABLED && <SpeedInsights />}
+         {env.NEXT_PUBLIC_DUB_REFER_DOMAIN && (
+           <DubAnalytics
+             apiHost="/_proxy/dub"
+diff --git a/apps/web/env.ts b/apps/web/env.ts
+index 6c89f04..a9f1011 100644
+--- a/apps/web/env.ts
++++ b/apps/web/env.ts
+@@ -63,6 +63,10 @@ const parsedEnv = createEnv({
+     ),
+ 
+     AUTH_SECRET: z.string().optional(),
++    LOCAL_THUNDERBIRD_ENABLED: booleanString.default(false),
++    THUNDERBIRD_BRIDGE_URL: z.string().url().optional(),
++    THUNDERBIRD_BRIDGE_TOKEN: z.string().min(32).optional(),
++    LOCAL_AI_DISABLED: booleanString.default(false),
+     SCIM_CREDENTIAL_HASH_SECRET: z.string().min(32).optional(),
+     NEXTAUTH_SECRET: z.string().optional(),
+     AUTH_ALLOWED_EMAILS: z
+diff --git a/apps/web/hooks/useFolders.ts b/apps/web/hooks/useFolders.ts
+index 952d3e6..153526a 100644
+--- a/apps/web/hooks/useFolders.ts
++++ b/apps/web/hooks/useFolders.ts
+@@ -3,7 +3,7 @@ import type { GetFoldersResponse } from "@/app/api/user/folders/route";
+ import { isMicrosoftProvider } from "@/utils/email/provider-types";
+ 
+ export function useFolders(provider: string) {
+-  const enabled = isMicrosoftProvider(provider);
++  const enabled = isMicrosoftProvider(provider) || provider === "thunderbird";
+   const { data, error, isLoading, mutate } = useSWR<GetFoldersResponse>(
+     enabled ? "/api/user/folders" : null,
+   );
+diff --git a/apps/web/utils/actions/assess.ts b/apps/web/utils/actions/assess.ts
+index bc737c7..ed37846 100644
+--- a/apps/web/utils/actions/assess.ts
++++ b/apps/web/utils/actions/assess.ts
+@@ -9,6 +9,7 @@ import { getEmailForLLM } from "@/utils/get-email-from-message";
+ import { actionClient } from "@/utils/actions/safe-action";
+ import { createEmailProvider } from "@/utils/email/provider";
+ import { SafeError } from "@/utils/error";
++import { env } from "@/env";
+ 
+ const SENT_MESSAGE_SAMPLE_POOL_SIZE = 60;
+ const STYLE_SAMPLE_SIZE = 20;
+@@ -42,6 +43,7 @@ export const assessAction = actionClient
+ export const analyzeWritingStyleAction = actionClient
+   .metadata({ name: "analyzeWritingStyle" })
+   .action(async ({ ctx: { emailAccountId, provider, logger } }) => {
++    if (env.LOCAL_AI_DISABLED) return { success: true, skipped: true };
+     const emailAccount = await prisma.emailAccount.findUnique({
+       where: { id: emailAccountId },
+       select: {
+diff --git a/apps/web/utils/assess.ts b/apps/web/utils/assess.ts
+index 57a1889..95c314a 100644
+--- a/apps/web/utils/assess.ts
++++ b/apps/web/utils/assess.ts
+@@ -9,6 +9,7 @@ import { GmailLabel } from "@/utils/gmail/label";
+ const DEFAULT_LABEL_COUNT: Record<EmailProvider["name"], number> = {
+   google: 13,
+   microsoft: 8,
++  thunderbird: 0,
+ };
+ 
+ export async function assessUser({
+diff --git a/apps/web/utils/auth.ts b/apps/web/utils/auth.ts
+index 96d9a95..9390eaa 100644
+--- a/apps/web/utils/auth.ts
++++ b/apps/web/utils/auth.ts
+@@ -50,6 +50,7 @@ import { mobileAuthProviderCompletion } from "@/utils/mobile-auth/provider-compl
+ import { safeExpo } from "@/utils/mobile-auth/expo";
+ import { clearAccountDisconnectedErrorIfResolved } from "@/utils/error-messages";
+ import { getEnabledLoginProviders } from "@/utils/oauth/login-providers";
++import { isLocalThunderbirdEnabled } from "@/utils/email/thunderbird-config";
+ import { getAppleClientSecret } from "@/utils/auth/apple-client-secret";
+ import { reconcileMicrosoftAccountSubject } from "@/utils/auth/microsoft-account-subject";
+ import { getScimOptions, assertScimUserActive } from "@/utils/auth/scim";
+@@ -255,7 +256,8 @@ export const betterAuthConfig = betterAuth({
+   ],
+   secret: env.AUTH_SECRET || env.NEXTAUTH_SECRET,
+   emailAndPassword: {
+-    enabled: false,
++    enabled: isLocalThunderbirdEnabled(),
++    disableSignUp: true,
+   },
+   database: prismaAdapter(prisma, {
+     provider: "postgresql",
+diff --git a/apps/web/utils/email/provider.ts b/apps/web/utils/email/provider.ts
+index 7b58d8e..a6e31f2 100644
+--- a/apps/web/utils/email/provider.ts
++++ b/apps/web/utils/email/provider.ts
+@@ -10,6 +10,10 @@ import { toRateLimitProvider } from "@/utils/email/rate-limit-mode-error";
+ import { recordEmailAccountProviderIssue } from "@/utils/email/provider-health";
+ import type { Logger } from "@/utils/logger";
+ import { flushLoggerSafely } from "@/utils/logger-flush";
++import { env } from "@/env";
++import prisma from "@/utils/prisma";
++import { ThunderbirdProvider } from "@/utils/email/thunderbird-provider";
++import { isLocalThunderbirdEnabled } from "@/utils/email/thunderbird-config";
+ 
+ export async function createEmailProvider({
+   emailAccountId,
+@@ -20,6 +24,36 @@ export async function createEmailProvider({
+   provider: string;
+   logger: Logger;
+ }): Promise<EmailProvider> {
++  if (provider === "thunderbird") {
++    if (!isLocalThunderbirdEnabled())
++      throw new Error("Local Thunderbird is disabled");
++    const mailbox = await prisma.emailAccount.findUniqueOrThrow({
++      where: { id: emailAccountId },
++      select: {
++        email: true,
++        account: { select: { provider: true, providerAccountId: true } },
++      },
++    });
++    if (mailbox.account.provider !== "thunderbird")
++      throw new Error("Mailbox provider mismatch");
++    const reader = new ThunderbirdProvider({
++      baseUrl: env.THUNDERBIRD_BRIDGE_URL!,
++      token: env.THUNDERBIRD_BRIDGE_TOKEN!,
++      accountId: mailbox.account.providerAccountId,
++    });
++    const account = (await reader.getAccounts()).find(
++      (account) => account.id === mailbox.account.providerAccountId,
++    );
++    if (
++      !account ||
++      account.email.toLowerCase() !== mailbox.email.toLowerCase()
++    ) {
++      throw new Error(
++        "Thunderbird account identity changed. Reconnect this mailbox.",
++      );
++    }
++    return reader;
++  }
+   const rateLimitProvider = toRateLimitProvider(provider);
+   if (!rateLimitProvider) throw new Error(`Unsupported provider: ${provider}`);
+ 
+diff --git a/apps/web/utils/email/rate-limit-mode-error.ts b/apps/web/utils/email/rate-limit-mode-error.ts
+index 23177fb..ff6f0c7 100644
+--- a/apps/web/utils/email/rate-limit-mode-error.ts
++++ b/apps/web/utils/email/rate-limit-mode-error.ts
+@@ -1,6 +1,6 @@
+ import type { EmailProvider } from "@/utils/email/types";
+ 
+-export type EmailProviderRateLimitProvider = EmailProvider["name"];
++export type EmailProviderRateLimitProvider = Exclude<EmailProvider["name"], "thunderbird">;
+ 
+ type EmailProviderRateLimitMetadata = {
+   apiErrorType: string;
+diff --git a/apps/web/utils/email/types.ts b/apps/web/utils/email/types.ts
+index c217d2e..1fbdb2d 100644
+--- a/apps/web/utils/email/types.ts
++++ b/apps/web/utils/email/types.ts
+@@ -353,7 +353,7 @@ export interface EmailProvider {
+     ownerEmail: string,
+     folderName: string,
+   ): Promise<void>;
+-  readonly name: "google" | "microsoft";
++  readonly name: "google" | "microsoft" | "thunderbird";
+   removeThreadLabel(threadId: string, labelId: string): Promise<void>;
+   removeThreadLabels(threadId: string, labelIds: string[]): Promise<void>;
+   renameFolder(folderId: string, name: string): Promise<void>;
+diff --git a/apps/web/utils/llms/model.test.ts b/apps/web/utils/llms/model.test.ts
+index 672d122..d80aea0 100644
+--- a/apps/web/utils/llms/model.test.ts
++++ b/apps/web/utils/llms/model.test.ts
+@@ -164,6 +164,18 @@ describe("Models", () => {
+   });
+ 
+   describe("getModel", () => {
++    it("blocks local AI before creating any provider client", () => {
++      vi.mocked(env).LOCAL_AI_DISABLED = true;
++      try {
++        expect(() => getModel(defaultUserAi())).toThrow("AI is disabled");
++        expect(createOllama).not.toHaveBeenCalled();
++        expect(createOpenAICompatible).not.toHaveBeenCalled();
++        expect(createOpenAI).not.toHaveBeenCalled();
++        expect(createOpenRouter).not.toHaveBeenCalled();
++      } finally {
++        vi.mocked(env).LOCAL_AI_DISABLED = false;
++      }
++    });
+     it("should use default provider and model when user has no API key", () => {
+       const userAi = defaultUserAi();
+ 
+diff --git a/apps/web/utils/llms/model.ts b/apps/web/utils/llms/model.ts
+index 9142632..26e1f77 100644
+--- a/apps/web/utils/llms/model.ts
++++ b/apps/web/utils/llms/model.ts
+@@ -66,6 +66,8 @@ export function getModel(
+   userAi: UserAIFields,
+   modelType: ModelType = "default",
+ ): SelectModel {
++  if (env.LOCAL_AI_DISABLED)
++    throw new SafeError("AI is disabled for this local installation.");
+   const selectedModel = userAi.aiApiKey
+     ? {
+         primaryModel: selectUserModel(userAi, modelType),
+diff --git a/apps/web/utils/mail-api/operations.ts b/apps/web/utils/mail-api/operations.ts
+index 05761fa..9c6ce7c 100644
+--- a/apps/web/utils/mail-api/operations.ts
++++ b/apps/web/utils/mail-api/operations.ts
+@@ -65,6 +65,8 @@ export function createEmailProviderOperationExecutor(input: {
+   const { provider, accountId } = input;
+   return {
+     async execute({ operation }) {
++      if (provider.name === "thunderbird")
++        return { status: "rejected", code: "unsupported", targets: [] };
+       if (operation.intent.kind === "send") {
+         return executeSend(provider, accountId, operation);
+       }
+diff --git a/apps/web/utils/mail-api/source.ts b/apps/web/utils/mail-api/source.ts
+index 77db1ef..c78bf00 100644
+--- a/apps/web/utils/mail-api/source.ts
++++ b/apps/web/utils/mail-api/source.ts
+@@ -63,7 +63,8 @@ export function createEmailProviderMailboxSource(input: {
+             provider.localMailSyncStrategy === "folder-delta"
+               ? "folder_delta"
+               : "account_history",
+-          supportedChanges: [...SUPPORTED_CHANGES],
++          supportedChanges:
++            provider.name === "thunderbird" ? [] : [...SUPPORTED_CHANGES],
+           maxPageSize,
+           maxHydrationBatch: 20,
+         },
+@@ -141,7 +142,8 @@ export function createEmailProviderMailboxSource(input: {
+               bootstrapId: "mailbox",
+               scopeId: token.scopeId ?? "primary",
+               changes,
+-              requiredHydration,
++              requiredHydration:
++                provider.name === "thunderbird" ? [] : requiredHydration,
+               bodies,
+               nextPage: JSON.stringify({
+                 afterMs: token.afterMs ?? 0,
+@@ -160,7 +162,8 @@ export function createEmailProviderMailboxSource(input: {
+             bootstrapId: "mailbox",
+             scopeId: token.scopeId ?? "primary",
+             changes,
+-            requiredHydration,
++            requiredHydration:
++              provider.name === "thunderbird" ? [] : requiredHydration,
+             bodies,
+             nextPage: null,
+             catchUpFrom: await finalCatchUpFrom({
+@@ -219,7 +222,9 @@ export function createEmailProviderMailboxSource(input: {
+                 scopeId: position.streamId,
+               })),
+             ],
+-            ...parsedMessageBodies(accountId, page.upsertedMessages),
++            ...(provider.name === "thunderbird"
++              ? { requiredHydration: [], bodies: [] }
++              : parsedMessageBodies(accountId, page.upsertedMessages)),
+             roundComplete: !page.hasMore,
+           },
+         };
+diff --git a/apps/web/utils/mail-engine/MailEngineHost.tsx b/apps/web/utils/mail-engine/MailEngineHost.tsx
+index b062ed3..ac6feb8 100644
+--- a/apps/web/utils/mail-engine/MailEngineHost.tsx
++++ b/apps/web/utils/mail-engine/MailEngineHost.tsx
+@@ -143,7 +143,12 @@ function MailEngineRuntimeInner({ children }: { children: ReactNode }) {
+       setUnavailable(true);
+       return;
+     }
+-    const mailProvider = isMicrosoftProvider(provider) ? "microsoft" : "google";
++    const mailProvider =
++      provider === "thunderbird"
++        ? "thunderbird"
++        : isMicrosoftProvider(provider)
++          ? "microsoft"
++          : "google";
+     const abort = new AbortController();
+     let published: MailClient | undefined;
+ 
+diff --git a/apps/web/utils/mail-engine/create-browser-engine.ts b/apps/web/utils/mail-engine/create-browser-engine.ts
+index 1f4e9d3..8cb1d99 100644
+--- a/apps/web/utils/mail-engine/create-browser-engine.ts
++++ b/apps/web/utils/mail-engine/create-browser-engine.ts
+@@ -31,7 +31,7 @@ export { browserMailEngineCapabilities };
+ export type BrowserMailEngine = MailEngine & {
+   ensureAccount(input: {
+     accountId: string;
+-    provider: "google" | "microsoft";
++    provider: "google" | "microsoft" | "thunderbird";
+     generation?: string;
+   }): Promise<void>;
+ };
+@@ -69,7 +69,11 @@ async function createInTabEngine(
+     await store.ensureAccount({
+       accountId: account.accountId,
+       provider: account.provider,
+-      generation: account.generation ?? account.accountId,
++      generation:
++        account.generation ??
++        (account.provider === "thunderbird"
++          ? `${account.accountId}:thunderbird-rfc-v1`
++          : account.accountId),
+     });
+   };
+   await ensureAccount(input);
+diff --git a/apps/web/utils/mail-engine/desktop-ipc.ts b/apps/web/utils/mail-engine/desktop-ipc.ts
+index eb25c6e..eb04897 100644
+--- a/apps/web/utils/mail-engine/desktop-ipc.ts
++++ b/apps/web/utils/mail-engine/desktop-ipc.ts
+@@ -16,7 +16,7 @@ export function hasDesktopMailEngineIpc() {
+ }
+ 
+ export function createDesktopIpcMailClient(input?: {
+-  provider?: "google" | "microsoft";
++  provider?: "google" | "microsoft" | "thunderbird";
+ }) {
+   const desktop = getInboxZeroDesktopApp();
+   const invoke = desktop?.mailEngine;
+diff --git a/apps/web/utils/mail-engine/engine-worker.ts b/apps/web/utils/mail-engine/engine-worker.ts
+index 2c742a3..77ae4d1 100644
+--- a/apps/web/utils/mail-engine/engine-worker.ts
++++ b/apps/web/utils/mail-engine/engine-worker.ts
+@@ -47,7 +47,11 @@ async function createWorkerEngine(
+     await store.ensureAccount({
+       accountId: account.accountId,
+       provider: account.provider,
+-      generation: account.generation ?? account.accountId,
++      generation:
++        account.generation ??
++        (account.provider === "thunderbird"
++          ? `${account.accountId}:thunderbird-rfc-v1`
++          : account.accountId),
+     });
+   };
+   await ensureAccount(input);
+diff --git a/apps/web/utils/mail-engine/tab-channel.ts b/apps/web/utils/mail-engine/tab-channel.ts
+index f31b7e1..f99efab 100644
+--- a/apps/web/utils/mail-engine/tab-channel.ts
++++ b/apps/web/utils/mail-engine/tab-channel.ts
+@@ -18,7 +18,7 @@ export type TabMailMessage =
+   | {
+       type: "hello";
+       accountId: string;
+-      provider?: "google" | "microsoft";
++      provider?: "google" | "microsoft" | "thunderbird";
+     }
+   | { type: "ready" }
+   | { type: "owner"; accountId: string }
+@@ -66,7 +66,7 @@ export function bindTabMailOwner(input: {
+   bus: TabMailBus;
+   ensureAccount?: (input: {
+     accountId: string;
+-    provider: "google" | "microsoft";
++    provider: "google" | "microsoft" | "thunderbird";
+   }) => Promise<void>;
+ }): () => void {
+   const handles = new Map<
+@@ -164,7 +164,7 @@ export function disposeTabFollowerClient(client: MailClient) {
+ 
+ export function createTabFollowerClient(input: {
+   accountId: string;
+-  provider?: "google" | "microsoft";
++  provider?: "google" | "microsoft" | "thunderbird";
+   bus: TabMailBus;
+ }): MailClient {
+   const pending = new Map<
+@@ -390,7 +390,7 @@ function announceOwner(
+     bus: TabMailBus;
+     ensureAccount?: (account: {
+       accountId: string;
+-      provider: "google" | "microsoft";
++      provider: "google" | "microsoft" | "thunderbird";
+     }) => Promise<void>;
+   },
+   message: Extract<TabMailMessage, { type: "hello" }>,
+diff --git a/apps/web/utils/mail-engine/worker-protocol.ts b/apps/web/utils/mail-engine/worker-protocol.ts
+index 0a29e0b..489ff19 100644
+--- a/apps/web/utils/mail-engine/worker-protocol.ts
++++ b/apps/web/utils/mail-engine/worker-protocol.ts
+@@ -3,7 +3,7 @@ import type { QuerySnapshot } from "@inboxzero/mail-core/queries";
+ 
+ export type BrowserEngineStart = {
+   accountId: string;
+-  provider: "google" | "microsoft";
++  provider: "google" | "microsoft" | "thunderbird";
+   generation?: string;
+   persist?: boolean;
+   maxPendingOperations?: number;
+diff --git a/packages/mail-core/src/identities.ts b/packages/mail-core/src/identities.ts
+index a66c2d7..16fa0c3 100644
+--- a/packages/mail-core/src/identities.ts
++++ b/packages/mail-core/src/identities.ts
+@@ -13,7 +13,7 @@ export const blobIdSchema = z
+   .max(128)
+   .regex(/^[A-Za-z0-9][A-Za-z0-9._-]*$/);
+ 
+-export const providerSchema = z.enum(["google", "microsoft"]);
++export const providerSchema = z.enum(["google", "microsoft", "thunderbird"]);
+ export type Provider = z.infer<typeof providerSchema>;
+ 
+ export const messageKeySchema = z.object({
+diff --git a/packages/mail-sqlite/src/migrations.ts b/packages/mail-sqlite/src/migrations.ts
+index d730691..baff311 100644
+--- a/packages/mail-sqlite/src/migrations.ts
++++ b/packages/mail-sqlite/src/migrations.ts
+@@ -21,7 +21,7 @@ CREATE TABLE IF NOT EXISTS profile_state (
+ 
+ CREATE TABLE IF NOT EXISTS accounts (
+   account_id TEXT PRIMARY KEY,
+-  provider TEXT NOT NULL CHECK (provider IN ('google', 'microsoft')),
++  provider TEXT NOT NULL CHECK (provider IN ('google', 'microsoft', 'thunderbird')),
+   generation TEXT NOT NULL,
+   assistant_cursor TEXT
+ );
+diff --git a/packages/mail-sqlite/src/store.ts b/packages/mail-sqlite/src/store.ts
+index 7824d1c..3c456cc 100644
+--- a/packages/mail-sqlite/src/store.ts
++++ b/packages/mail-sqlite/src/store.ts
+@@ -2286,7 +2286,7 @@ async function inspectState(
+     revision,
+     accounts: accounts.map((row) => ({
+       accountId: String(row.account_id),
+-      provider: String(row.provider) as "google" | "microsoft",
++      provider: String(row.provider) as "google" | "microsoft" | "thunderbird",
+       generation: String(row.generation),
+       assistantCursor:
+         row.assistant_cursor == null ? null : String(row.assistant_cursor),
+@@ -2373,7 +2373,7 @@ async function resetAccountForGeneration(
+   tx: SqlTransaction,
+   input: {
+     accountId: string;
+-    provider: "google" | "microsoft";
++    provider: "google" | "microsoft" | "thunderbird";
+     generation: string;
+   },
+ ) {
+diff --git a/turbo.json b/turbo.json
+index b5f612f..92137b0 100644
+--- a/turbo.json
++++ b/turbo.json
+@@ -16,6 +16,10 @@
+         "PREVIEW_DATABASE_URL_UNPOOLED",
+         "NEXTAUTH_SECRET",
+         "AUTH_SECRET",
++        "LOCAL_THUNDERBIRD_ENABLED",
++        "THUNDERBIRD_BRIDGE_URL",
++        "THUNDERBIRD_BRIDGE_TOKEN",
++        "LOCAL_AI_DISABLED",
+         "SCIM_CREDENTIAL_HASH_SECRET",
+         "AUTH_ALLOWED_EMAILS",
+         "AUTH_ALLOWED_EMAIL_DOMAINS",
+@@ -315,6 +319,10 @@
+         "MCP_ALLOW_PRIVATE_IPS",
+         "DATABASE_URL",
+         "AUTH_SECRET",
++        "LOCAL_THUNDERBIRD_ENABLED",
++        "THUNDERBIRD_BRIDGE_URL",
++        "THUNDERBIRD_BRIDGE_TOKEN",
++        "LOCAL_AI_DISABLED",
+         "SCIM_CREDENTIAL_HASH_SECRET",
+         "AUTH_ALLOWED_EMAILS",
+         "AUTH_ALLOWED_EMAIL_DOMAINS",
+diff --git a/apps/web/app/(landing)/login/ThunderbirdLoginForm.tsx b/apps/web/app/(landing)/login/ThunderbirdLoginForm.tsx
+new file mode 100644
+index 0000000..9c160c5
+--- /dev/null
++++ b/apps/web/app/(landing)/login/ThunderbirdLoginForm.tsx
+@@ -0,0 +1,66 @@
++"use client";
++
++import { useState, type FormEvent } from "react";
++import { signIn } from "@/utils/auth-client";
++import { Button } from "@/components/ui/button";
++import { Input } from "@/components/ui/input";
++
++export function ThunderbirdLoginForm() {
++  const [loading, setLoading] = useState(false);
++  const [error, setError] = useState("");
++  async function submit(event: FormEvent<HTMLFormElement>) {
++    event.preventDefault();
++    setLoading(true);
++    setError("");
++    const form = new FormData(event.currentTarget);
++    try {
++      const result = await signIn.email({
++        email: String(form.get("email")),
++        password: String(form.get("password")),
++      });
++      if (result.error)
++        throw new Error(result.error.message || "Sign-in failed");
++      window.location.assign("/accounts");
++    } catch (error) {
++      setError(error instanceof Error ? error.message : "Sign-in failed");
++    } finally {
++      setLoading(false);
++    }
++  }
++  return (
++    <form onSubmit={submit} className="mb-6 flex flex-col gap-3">
++      <p className="text-sm text-muted-foreground">
++        Use the local Inbox Zero login for your connected Thunderbird mailbox.
++        AI is disabled.
++      </p>
++      <label className="text-sm" htmlFor="local-email">
++        Email
++        <Input
++          id="local-email"
++          name="email"
++          type="email"
++          autoComplete="username"
++          required
++        />
++      </label>
++      <label className="text-sm" htmlFor="local-password">
++        Local password
++        <Input
++          id="local-password"
++          name="password"
++          type="password"
++          autoComplete="current-password"
++          required
++        />
++      </label>
++      {error && (
++        <p role="alert" className="text-sm text-destructive">
++          {error}
++        </p>
++      )}
++      <Button type="submit" disabled={loading}>
++        {loading ? "Signing in…" : "Sign in to local Inbox Zero"}
++      </Button>
++    </form>
++  );
++}
+diff --git a/apps/web/scripts/setup-thunderbird.mts b/apps/web/scripts/setup-thunderbird.mts
+new file mode 100644
+index 0000000..afc5a04
+--- /dev/null
++++ b/apps/web/scripts/setup-thunderbird.mts
+@@ -0,0 +1,118 @@
++import { config } from "dotenv";
++import { readFile } from "node:fs/promises";
++import { hashPassword, verifyPassword } from "better-auth/crypto";
++import { PrismaPg } from "@prisma/adapter-pg";
++import { PrismaClient } from "../generated/prisma/client";
++import { ThunderbirdMailReader } from "../utils/email/thunderbird";
++
++config({ path: ".env.local", quiet: true });
++if (
++  process.env.LOCAL_THUNDERBIRD_ENABLED !== "true" ||
++  process.env.LOCAL_AI_DISABLED !== "true"
++)
++  throw new Error("Local Thunderbird and AI-off configuration are required");
++const values = JSON.parse(
++  await readFile(
++    new URL(
++      "../../../../thunderbird-inbox-zero/.private/inbox-zero-config.json",
++      import.meta.url,
++    ),
++    "utf8",
++  ),
++);
++const reader = new ThunderbirdMailReader({
++  baseUrl: process.env.THUNDERBIRD_BRIDGE_URL!,
++  token: process.env.THUNDERBIRD_BRIDGE_TOKEN!,
++});
++const accounts = await reader.getAccounts();
++if (accounts.length !== 1 || !accounts[0].email)
++  throw new Error("Setup requires exactly one connected Thunderbird account");
++const mailbox = accounts[0];
++const db = new PrismaClient({
++  adapter: new PrismaPg({ connectionString: process.env.DATABASE_URL! }),
++});
++try {
++  const existing = await db.user.findUnique({
++    where: { email: mailbox.email },
++  });
++  const user =
++    existing ??
++    (await db.user.create({
++      data: {
++        email: mailbox.email,
++        name: mailbox.name,
++        emailVerified: true,
++        completedOnboardingAt: new Date(),
++        surveyFeatures: [],
++      },
++    }));
++  const credential = await db.account.findFirst({
++    where: { userId: user.id, provider: "credential" },
++  });
++  if (credential) {
++    if (
++      !credential.password ||
++      !(await verifyPassword({
++        hash: credential.password,
++        password: values.password,
++      }))
++    )
++      throw new Error(
++        "Existing local login has a different password; it was not changed",
++      );
++  } else {
++    await db.account.create({
++      data: {
++        userId: user.id,
++        provider: "credential",
++        providerAccountId: user.id,
++        password: await hashPassword(values.password),
++      },
++    });
++  }
++  const linked = await db.account.upsert({
++    where: {
++      provider_providerAccountId: {
++        provider: "thunderbird",
++        providerAccountId: mailbox.id,
++      },
++    },
++    create: {
++      userId: user.id,
++      provider: "thunderbird",
++      providerAccountId: mailbox.id,
++    },
++    update: {},
++  });
++  if (linked.userId !== user.id)
++    throw new Error(
++      "Thunderbird account is already linked to another local user",
++    );
++  const emailAccount = await db.emailAccount.upsert({
++    where: { email: mailbox.email },
++    create: {
++      userId: user.id,
++      accountId: linked.id,
++      email: mailbox.email,
++      name: mailbox.name,
++      timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
++      followUpAutoDraftEnabled: false,
++      sentMessageOpenTrackingEnabled: false,
++      includeSentWithSignature: false,
++    },
++    update: {},
++  });
++  if (emailAccount.userId !== user.id || emailAccount.accountId !== linked.id)
++    throw new Error(
++      "Mailbox is already linked differently; no ownership was changed",
++    );
++  console.log(
++    JSON.stringify({
++      emailAccountId: emailAccount.id,
++      provider: "thunderbird",
++      aiDisabled: true,
++    }),
++  );
++} finally {
++  await db.$disconnect();
++}
+diff --git a/apps/web/utils/email/thunderbird-config.ts b/apps/web/utils/email/thunderbird-config.ts
+new file mode 100644
+index 0000000..6f950b9
+--- /dev/null
++++ b/apps/web/utils/email/thunderbird-config.ts
+@@ -0,0 +1,18 @@
++import { env } from "@/env";
++
++export function isLocalThunderbirdEnabled() {
++  if (!env.LOCAL_THUNDERBIRD_ENABLED) return false;
++  const url = new URL(env.NEXT_PUBLIC_BASE_URL);
++  if (
++    url.protocol !== "http:" ||
++    !["localhost", "127.0.0.1"].includes(url.hostname)
++  ) {
++    throw new Error(
++      "Local Thunderbird login requires a loopback application URL",
++    );
++  }
++  if (!env.THUNDERBIRD_BRIDGE_URL || !env.THUNDERBIRD_BRIDGE_TOKEN) {
++    throw new Error("Local Thunderbird requires private bridge configuration");
++  }
++  return true;
++}
+diff --git a/apps/web/utils/email/thunderbird-provider.test.ts b/apps/web/utils/email/thunderbird-provider.test.ts
+new file mode 100644
+index 0000000..ba28215
+--- /dev/null
++++ b/apps/web/utils/email/thunderbird-provider.test.ts
+@@ -0,0 +1,103 @@
++import { describe, expect, it, vi } from "vitest";
++import { ThunderbirdProvider } from "./thunderbird-provider";
++import type { ParsedMessage } from "@/utils/types";
++
++function message(id: string, read = false): ParsedMessage {
++  return {
++    id,
++    threadId: id,
++    date: "2026-01-01T00:00:00Z",
++    internalDate: "1767225600000",
++    historyId: "",
++    subject: "Example",
++    snippet: "",
++    inline: [],
++    labelIds: read ? ["INBOX"] : ["INBOX", "UNREAD"],
++    headers: {
++      from: "sender@example.com",
++      to: "owner@example.com",
++      subject: "Example",
++      date: "2026-01-01",
++    },
++  };
++}
++function reader(accountId: string) {
++  return new ThunderbirdProvider({
++    baseUrl: "http://127.0.0.1:7700",
++    token: "test-token-".repeat(5),
++    accountId,
++  });
++}
++
++describe("Thunderbird provider snapshot synchronization", () => {
++  it("paginates snapshots, replays retries, and reports changed flags and deleted messages", async () => {
++    const provider = reader("snapshot-test");
++    const list = vi.spyOn(provider, "getMessagesWithPagination");
++    list.mockResolvedValue({
++      messages: [message("one"), message("two")],
++      nextPageToken: undefined,
++    });
++    const baseline = await provider.getMailboxSyncPage({
++      after: new Date(0),
++      limit: 1,
++    });
++    const first = await provider.getMailboxSyncPage({
++      cursor: baseline.cursor,
++      limit: 1,
++    });
++    expect(first.upsertedMessages.map((m) => m.id)).toEqual(["one"]);
++    expect(first.hasMore).toBe(true);
++    expect(
++      await provider.getMailboxSyncPage({ cursor: baseline.cursor, limit: 1 }),
++    ).toEqual(first);
++    const second = await provider.getMailboxSyncPage({
++      cursor: first.cursor,
++      limit: 1,
++    });
++    expect(second.upsertedMessages.map((m) => m.id)).toEqual(["two"]);
++    expect(second.hasMore).toBe(false);
++    list.mockResolvedValue({
++      messages: [message("two", true), message("three")],
++      nextPageToken: undefined,
++    });
++    const changed = await provider.getMailboxSyncPage({
++      cursor: second.cursor,
++      limit: 100,
++    });
++    expect(changed.upsertedMessages.map((m) => m.id)).toEqual(["two", "three"]);
++    expect(changed.deletedMessageIds).toEqual(["one"]);
++    expect(list).toHaveBeenCalledTimes(2);
++  });
++  it("rejects a sync cursor from a different mailbox and resets unknown positions", async () => {
++    const a = reader("isolated-a"),
++      b = reader("isolated-b");
++    const baseline = await a.getMailboxSyncPage({
++      after: new Date(0),
++      limit: 1,
++    });
++    await b.getMailboxSyncPage({ after: new Date(0), limit: 1 });
++    expect(
++      (await b.getMailboxSyncPage({ cursor: baseline.cursor, limit: 50 }))
++        .reset,
++    ).toBe(true);
++    expect(
++      (await a.getMailboxSyncPage({ cursor: "expired", limit: 50 })).reset,
++    ).toBe(true);
++  });
++  it("fails writes without dispatching a request to Thunderbird", () => {
++    const provider = reader("read-only-test");
++    const fetchSpy = vi.spyOn(globalThis, "fetch");
++    expect(() =>
++      provider.trashThread("one", "owner@example.com", "user"),
++    ).toThrow("read-only");
++    expect(() =>
++      provider.sendEmail({
++        to: "someone@example.com",
++        subject: "Hello",
++        messageText: "Hello",
++      }),
++    ).toThrow("read-only");
++    expect(fetchSpy).not.toHaveBeenCalled();
++    fetchSpy.mockRestore();
++  });
++});
+diff --git a/apps/web/utils/email/thunderbird-provider.ts b/apps/web/utils/email/thunderbird-provider.ts
+new file mode 100644
+index 0000000..8d24754
+--- /dev/null
++++ b/apps/web/utils/email/thunderbird-provider.ts
+@@ -0,0 +1,405 @@
++import { randomUUID } from "node:crypto";
++import { ThunderbirdMailReader } from "@/utils/email/thunderbird";
++import type {
++  EmailProvider,
++  EmailThread,
++  MailboxSyncPage,
++} from "@/utils/email/types";
++import type { ParsedMessage } from "@/utils/types";
++import type { OutlookSystemFolder } from "@/utils/outlook/folders";
++
++const snapshots = new Map<
++  string,
++  {
++    cursor: string;
++    messages: Map<string, ParsedMessage>;
++    replies: Map<string, MailboxSyncPage>;
++    pending?: {
++      messages: ParsedMessage[];
++      deleted: string[];
++      snapshot: Map<string, ParsedMessage>;
++    };
++    scan?: Promise<void>;
++  }
++>();
++
++export class ThunderbirdProvider
++  extends ThunderbirdMailReader
++  implements EmailProvider
++{
++  readonly localMailSyncStrategy = "account-history";
++
++  toJSON() {
++    return { name: this.name, type: "local-read-only" };
++  }
++
++  async getFolders() {
++    const roles: Record<string, OutlookSystemFolder> = {
++      inbox: "INBOX",
++      sent: "SENT",
++      drafts: "DRAFT",
++      trash: "TRASH",
++      junk: "SPAM",
++      archives: "ARCHIVE",
++    };
++    return (await this.getThunderbirdFolders()).map((folder) => ({
++      id: folder.id,
++      displayName: folder.name,
++      childFolders: [],
++      totalItemCount: folder.total,
++      unreadItemCount: folder.unread,
++      systemType: folder.specialUse.map((role) => roles[role]).find(Boolean),
++    }));
++  }
++
++  async getLabels() {
++    return [] as Awaited<ReturnType<EmailProvider["getLabels"]>>;
++  }
++  async getLabelById(id: string) {
++    return (await this.getLabels()).find((label) => label.id === id) ?? null;
++  }
++  async getLabelByName(name: string) {
++    return (
++      (await this.getLabels()).find((label) => label.name === name) ?? null
++    );
++  }
++  async getSignatures() {
++    return [];
++  }
++  async getFiltersList() {
++    return [];
++  }
++  async getForwardingAddresses() {
++    return [];
++  }
++  async searchContacts() {
++    return [];
++  }
++  async getMessagesBatch(ids: string[]) {
++    return Promise.all(ids.map((id) => this.getMessage(id)));
++  }
++  async getPreviousConversationMessages(ids: string[]) {
++    return this.getMessagesBatch(ids);
++  }
++  async getOriginalMessage(id: string | undefined) {
++    return id ? this.getMessage(id) : null;
++  }
++  async getThread(id: string): Promise<EmailThread> {
++    return asThread(await this.getMessage(id));
++  }
++  async getThreadMessages(id: string) {
++    return (await this.getThread(id)).messages;
++  }
++  async getThreadMessagesInInbox(id: string) {
++    return (await this.getThreadMessages(id)).filter((message) =>
++      message.labelIds?.includes("INBOX"),
++    );
++  }
++  async getLatestMessageInThread(id: string) {
++    return this.getMessage(id);
++  }
++  async getLatestMessageFromThreadSnapshot(
++    thread: Pick<EmailThread, "id" | "messages">,
++  ) {
++    return thread.messages.at(-1) ?? null;
++  }
++  isSentMessage(message: ParsedMessage) {
++    return !!message.labelIds?.includes("SENT");
++  }
++  isReplyInThread(message: ParsedMessage) {
++    return !!message.headers["in-reply-to"];
++  }
++  async watchEmails() {
++    return null;
++  }
++  async unwatchEmails() {}
++
++  async getThreadsWithQuery({
++    query,
++    maxResults,
++    pageToken,
++  }: Parameters<EmailProvider["getThreadsWithQuery"]>[0] = {}) {
++    const page = await this.getMessagesWithPagination({
++      query: query?.q ?? undefined,
++      folderId: query?.folderId ?? query?.labelId ?? undefined,
++      maxResults,
++      pageToken,
++      inboxOnly: query?.type === "inbox",
++      unreadOnly: !!query?.isUnread,
++      before: query?.before ?? undefined,
++      after: query?.after ?? undefined,
++    });
++    if (
++      query?.anyOf?.length ||
++      query?.excludeSplits?.length ||
++      query?.fromEmail ||
++      query?.category
++    )
++      unsupported();
++    return {
++      threads: page.messages.map(asThread),
++      nextPageToken: page.nextPageToken,
++    };
++  }
++  async getThreads(folderId?: string) {
++    return (await this.getThreadsWithQuery({ query: { folderId } })).threads;
++  }
++  async getThreadsWithLabel({
++    labelId,
++    maxResults,
++  }: Parameters<EmailProvider["getThreadsWithLabel"]>[0]) {
++    return (await this.getThreadsWithQuery({ query: { labelId }, maxResults }))
++      .threads;
++  }
++  async getDrafts({ maxResults }: { maxResults?: number } = {}) {
++    return this.messagesInRole("drafts", maxResults);
++  }
++  async getSentMessages(maxResults?: number) {
++    return this.messagesInRole("sent", maxResults);
++  }
++  async getDraft(id: string) {
++    const message = await this.getMessage(id);
++    return message.labelIds?.includes("DRAFT") ? message : null;
++  }
++  async getDraftReferenceForMessage(id: string) {
++    return (await this.getDraft(id)) ? { id } : null;
++  }
++
++  async searchMessages(
++    options: Parameters<EmailProvider["searchMessages"]>[0],
++  ) {
++    if (
++      options.fromEmail ||
++      options.labelName ||
++      (options.labelIds?.length ?? 0) > 1
++    )
++      unsupported();
++    const search = options.mailboxSearch;
++    if (
++      search?.hasAttachment !== undefined ||
++      search?.starred !== undefined ||
++      search?.excludedRoles?.length
++    )
++      unsupported();
++    if (search?.text && !["any", "subject"].includes(search.text.field))
++      unsupported();
++    let folderId = options.labelIds?.[0];
++    const mailbox = search?.mailbox ?? options.folder;
++    if (mailbox && mailbox !== "all" && mailbox !== "inbox") {
++      const role = (
++        {
++          drafts: "drafts",
++          sent: "sent",
++          trash: "trash",
++          spam: "junk",
++          archive: "archives",
++        } as Record<string, string>
++      )[mailbox];
++      if (!role) unsupported();
++      folderId = (await this.getThunderbirdFolders()).find((folder) =>
++        folder.specialUse.includes(role),
++      )?.id;
++      if (!folderId) return { messages: [], nextPageToken: undefined };
++    }
++    const page = await this.getMessagesWithPagination({
++      query: search?.text?.value ?? options.query,
++      maxResults: options.maxResults,
++      pageToken: options.pageToken,
++      folderId,
++      inboxOnly: mailbox === "inbox",
++      unreadOnly: search?.read === false || options.readState === "unread",
++    });
++    const messages = page.messages.filter(
++      (message) =>
++        search?.read !== true || !message.labelIds?.includes("UNREAD"),
++    );
++    return { ...page, messages };
++  }
++  async searchThreads(options: Parameters<EmailProvider["searchThreads"]>[0]) {
++    const page = await this.searchMessages(options);
++    return {
++      threads: page.messages.map(asThread),
++      nextPageToken: page.nextPageToken,
++    };
++  }
++
++  async getMailboxSyncPage({
++    cursor,
++    after,
++    limit,
++  }: Parameters<
++    EmailProvider["getMailboxSyncPage"]
++  >[0]): Promise<MailboxSyncPage> {
++    const key = this.selectedAccount();
++    let state = snapshots.get(key);
++    if (after) {
++      state = { cursor: randomUUID(), messages: new Map(), replies: new Map() };
++      snapshots.set(key, state);
++      return emptyPage(state.cursor);
++    }
++    if (!state || !cursor) return { ...emptyPage(""), reset: true };
++    const replay = state.replies.get(cursor);
++    if (replay) return replay;
++    if (cursor !== state.cursor) return { ...emptyPage(""), reset: true };
++    if (!state.pending) {
++      state.scan ??= this.scanSnapshot(state).finally(() => {
++        if (state) state.scan = undefined;
++      });
++      await state.scan;
++    }
++    const cached = state.replies.get(cursor);
++    if (cached) return cached;
++    if (cursor !== state.cursor) return { ...emptyPage(""), reset: true };
++    const pending = state.pending!;
++    const changed = pending.messages.splice(0, Math.min(limit, 100));
++    const hasMore = pending.messages.length > 0;
++    const next = randomUUID();
++    const page: MailboxSyncPage = {
++      cursor: next,
++      upsertedMessages: changed,
++      deletedMessageIds: hasMore ? [] : pending.deleted,
++      hasMore,
++      reset: false,
++    };
++    state.replies.set(cursor, page);
++    if (state.replies.size > 200)
++      state.replies.delete(state.replies.keys().next().value!);
++    state.cursor = next;
++    if (!hasMore) {
++      state.messages = pending.snapshot;
++      state.pending = undefined;
++    }
++    return page;
++  }
++
++  private async scanSnapshot(
++    state: NonNullable<ReturnType<typeof snapshots.get>>,
++  ) {
++    const snapshot = new Map<string, ParsedMessage>();
++    let token: string | undefined;
++    do {
++      const page = await this.getMessagesWithPagination({
++        maxResults: 100,
++        pageToken: token,
++        includeDrafts: true,
++      });
++      for (const message of page.messages) snapshot.set(message.id, message);
++      token = page.nextPageToken;
++    } while (token);
++    state.pending = {
++      snapshot,
++      messages: [...snapshot.values()].filter(
++        (message) =>
++          JSON.stringify(message) !==
++          JSON.stringify(state.messages.get(message.id)),
++      ),
++      deleted: [...state.messages.keys()].filter((id) => !snapshot.has(id)),
++    };
++  }
++  private async messagesInRole(role: string, maxResults?: number) {
++    const folder = (await this.getThunderbirdFolders()).find((folder) =>
++      folder.specialUse.includes(role),
++    );
++    if (!folder) return [];
++    return (
++      await this.getMessagesWithPagination({ folderId: folder.id, maxResults })
++    ).messages;
++  }
++
++  async syncLocalMail() {
++    return {
++      status: "unsupported",
++      strategy: this.localMailSyncStrategy,
++    } as const;
++  }
++  // Unsupported operations fail explicitly; the Thunderbird extension itself has no write permissions.
++  archiveMessage: EmailProvider["archiveMessage"] = unsupported;
++  archiveMessages: EmailProvider["archiveMessages"] = unsupported;
++  archiveThread: EmailProvider["archiveThread"] = unsupported;
++  archiveThreadWithLabel: EmailProvider["archiveThreadWithLabel"] = unsupported;
++  blockUnsubscribedEmail: EmailProvider["blockUnsubscribedEmail"] = unsupported;
++  bulkArchiveFromSenders: EmailProvider["bulkArchiveFromSenders"] = unsupported;
++  bulkArchiveThreads: EmailProvider["bulkArchiveThreads"] = unsupported;
++  bulkTrashFromSenders: EmailProvider["bulkTrashFromSenders"] = unsupported;
++  checkIfReplySent: EmailProvider["checkIfReplySent"] = unsupported;
++  countReceivedMessages: EmailProvider["countReceivedMessages"] = unsupported;
++  createAutoArchiveFilter: EmailProvider["createAutoArchiveFilter"] =
++    unsupported;
++  createDraft: EmailProvider["createDraft"] = unsupported;
++  createFilter: EmailProvider["createFilter"] = unsupported;
++  createLabel: EmailProvider["createLabel"] = unsupported;
++  deleteDraft: EmailProvider["deleteDraft"] = unsupported;
++  deleteFilter: EmailProvider["deleteFilter"] = unsupported;
++  deleteFolder: EmailProvider["deleteFolder"] = unsupported;
++  deleteLabel: EmailProvider["deleteLabel"] = unsupported;
++  draftEmail: EmailProvider["draftEmail"] = unsupported;
++  forwardEmail: EmailProvider["forwardEmail"] = unsupported;
++  getAccessToken: EmailProvider["getAccessToken"] = unsupported;
++  getAttachment: EmailProvider["getAttachment"] = unsupported;
++  getAttachmentStream: EmailProvider["getAttachmentStream"] = unsupported;
++  getMessageByRfc822MessageId: EmailProvider["getMessageByRfc822MessageId"] =
++    unsupported;
++  getMessagesFromSender: EmailProvider["getMessagesFromSender"] = unsupported;
++  getMessagesWithAttachments: EmailProvider["getMessagesWithAttachments"] =
++    unsupported;
++  getOrCreateFolderIdByName: EmailProvider["getOrCreateFolderIdByName"] =
++    unsupported;
++  getOrCreateInboxZeroLabel: EmailProvider["getOrCreateInboxZeroLabel"] =
++    unsupported;
++  getSentMessageIds: EmailProvider["getSentMessageIds"] = unsupported;
++  getSentThreadsExcluding: EmailProvider["getSentThreadsExcluding"] =
++    unsupported;
++  getThreadsFromSenderWithSubject: EmailProvider["getThreadsFromSenderWithSubject"] =
++    unsupported;
++  getThreadsWithParticipant: EmailProvider["getThreadsWithParticipant"] =
++    unsupported;
++  hasPreviousCommunicationsWithSenderOrDomain: EmailProvider["hasPreviousCommunicationsWithSenderOrDomain"] =
++    unsupported;
++  labelMessage: EmailProvider["labelMessage"] = unsupported;
++  markMessagesReadState: EmailProvider["markMessagesReadState"] = unsupported;
++  markMessagesStarredState: EmailProvider["markMessagesStarredState"] =
++    unsupported;
++  markNotSpam: EmailProvider["markNotSpam"] = unsupported;
++  markRead: EmailProvider["markRead"] = unsupported;
++  markReadThread: EmailProvider["markReadThread"] = unsupported;
++  markSpam: EmailProvider["markSpam"] = unsupported;
++  moveThreadToFolder: EmailProvider["moveThreadToFolder"] = unsupported;
++  removeThreadLabel: EmailProvider["removeThreadLabel"] = unsupported;
++  removeThreadLabels: EmailProvider["removeThreadLabels"] = unsupported;
++  renameFolder: EmailProvider["renameFolder"] = unsupported;
++  replyToEmail: EmailProvider["replyToEmail"] = unsupported;
++  sendDraft: EmailProvider["sendDraft"] = unsupported;
++  sendEmail: EmailProvider["sendEmail"] = unsupported;
++  sendEmailWithHtml: EmailProvider["sendEmailWithHtml"] = unsupported;
++  starMessage: EmailProvider["starMessage"] = unsupported;
++  trashMessages: EmailProvider["trashMessages"] = unsupported;
++  trashThread: EmailProvider["trashThread"] = unsupported;
++  unarchiveMessages: EmailProvider["unarchiveMessages"] = unsupported;
++  unarchiveThread: EmailProvider["unarchiveThread"] = unsupported;
++  untrashMessages: EmailProvider["untrashMessages"] = unsupported;
++  untrashThread: EmailProvider["untrashThread"] = unsupported;
++  updateDraft: EmailProvider["updateDraft"] = unsupported;
++  updateLabel: EmailProvider["updateLabel"] = unsupported;
++}
++
++function unsupported(): never {
++  throw new Error(
++    "This Thunderbird connection is read-only; this operation is not available yet.",
++  );
++}
++function asThread(message: ParsedMessage): EmailThread {
++  return {
++    id: message.threadId,
++    messages: [message],
++    snippet: message.snippet,
++  };
++}
++function emptyPage(cursor: string): MailboxSyncPage {
++  return {
++    cursor,
++    upsertedMessages: [],
++    deletedMessageIds: [],
++    hasMore: false,
++    reset: false,
++  };
++}
+diff --git a/apps/web/utils/email/thunderbird.ts b/apps/web/utils/email/thunderbird.ts
+new file mode 100644
+index 0000000..964e49b
+--- /dev/null
++++ b/apps/web/utils/email/thunderbird.ts
+@@ -0,0 +1,393 @@
++import { createHash } from "node:crypto";
++import type { EmailProvider, EmailFolderCount } from "@/utils/email/types";
++import type { ParsedMessage } from "@/utils/types";
++
++export type ThunderbirdAccount = {
++  id: string;
++  name: string;
++  type: string;
++  email: string;
++};
++export type ThunderbirdFolder = {
++  id: string;
++  accountId: string;
++  name: string;
++  path: string;
++  specialUse: string[];
++  total: number;
++  unread: number;
++};
++type ThunderbirdMessage = {
++  id: number;
++  accountId: string;
++  folderId: string;
++  date: string;
++  author: string;
++  recipients: string[];
++  ccList: string[];
++  subject: string;
++  headerMessageId: string;
++  read: boolean;
++  flagged: boolean;
++  tags: string[];
++  headers?: Record<string, string[]>;
++  parts?: {
++    text: string;
++    html: string;
++    attachments: {
++      partName: string;
++      name: string;
++      contentType: string;
++      size: number;
++    }[];
++  };
++};
++
++type ThunderbirdReader = Pick<
++  EmailProvider,
++  | "getMessage"
++  | "getMessagesWithPagination"
++  | "getInboxMessages"
++  | "getInboxStats"
++  | "getFolderCounts"
++>;
++
++const messageReferences = new Map<string, Map<string, number>>();
++
++export class ThunderbirdMailReader implements ThunderbirdReader {
++  readonly name = "thunderbird";
++  readonly readOnly = true;
++  private readonly baseUrl: string;
++  private readonly token: string;
++  protected readonly accountId?: string;
++
++  constructor({
++    baseUrl,
++    token,
++    accountId,
++  }: { baseUrl: string; token: string; accountId?: string }) {
++    const url = new URL(baseUrl);
++    if (
++      url.protocol !== "http:" ||
++      url.hostname !== "127.0.0.1" ||
++      url.username ||
++      url.password ||
++      url.search ||
++      url.hash ||
++      url.pathname !== "/"
++    ) {
++      throw new Error(
++        "Thunderbird bridge must use an HTTP address on 127.0.0.1",
++      );
++    }
++    if (token.length < 32)
++      throw new Error(
++        "A private bridge token of at least 32 characters is required",
++      );
++    this.baseUrl = url.origin;
++    this.token = token;
++    this.accountId = accountId;
++  }
++
++  async getStatus() {
++    return this.request<{
++      bridge: string;
++      extension: string;
++      readOnly: boolean;
++    }>("GET", "/bridge/status");
++  }
++
++  async getAccounts() {
++    return this.request<ThunderbirdAccount[]>("GET", "/inbox-zero/accounts");
++  }
++
++  async getThunderbirdFolders() {
++    const folders = await this.request<ThunderbirdFolder[]>(
++      "POST",
++      "/inbox-zero/folders",
++      {
++        accountId: this.selectedAccount(),
++      },
++    );
++    if (
++      !Array.isArray(folders) ||
++      folders.some((folder) => folder.accountId !== this.accountId)
++    ) {
++      throw new Error("Bridge returned folders outside the selected account");
++    }
++    return folders;
++  }
++
++  async getFolderCounts(): Promise<EmailFolderCount[]> {
++    return (await this.getThunderbirdFolders()).map((folder) => ({
++      id: folder.id,
++      name: folder.name,
++      total: folder.total,
++      unread: folder.unread,
++    }));
++  }
++
++  async getMessage(messageId: string): Promise<ParsedMessage> {
++    parseMessageId(messageId, this.selectedAccount());
++    const references = this.references();
++    let id = references.get(messageId);
++    if (!id) id = await this.findMessageReference(messageId);
++    let message: ThunderbirdMessage | undefined;
++    try {
++      message = await this.readNativeMessage(id);
++    } catch (error) {
++      if (
++        !(error instanceof Error) ||
++        !/message.*not found/i.test(error.message)
++      )
++        throw error;
++    }
++    if (!message || toInboxZeroMessage(message).id !== messageId) {
++      references.delete(messageId);
++      id = await this.findMessageReference(messageId);
++      message = await this.readNativeMessage(id);
++      if (toInboxZeroMessage(message).id !== messageId)
++        throw new ThunderbirdMessageNotFoundError(
++          "Message not found: Thunderbird's message IDs changed; refresh the mailbox",
++        );
++    }
++    return withFolderRole(
++      toInboxZeroMessage(message),
++      await this.getThunderbirdFolders(),
++    );
++  }
++
++  async getMessagesWithPagination(
++    options: Parameters<EmailProvider["getMessagesWithPagination"]>[0] = {},
++  ) {
++    if (options.before || options.after) {
++      throw new Error("Date filters are not supported by this adapter yet");
++    }
++    const limit = options.maxResults ?? 25;
++    if (!Number.isInteger(limit) || limit < 1 || limit > 100)
++      throw new Error("Page size must be 1–100");
++    let folderId = options.folderId;
++    if (options.inboxOnly) {
++      const folders = await this.getThunderbirdFolders();
++      const inbox = folders.find((folder) =>
++        folder.specialUse.includes("inbox"),
++      );
++      if (!inbox)
++        throw new Error("This account has no identifiable inbox folder");
++      folderId = inbox.id;
++    }
++    const page = await this.request<{
++      messages: ThunderbirdMessage[];
++      nextCursor?: string;
++    }>("POST", "/inbox-zero/messages", {
++      accountId: this.selectedAccount(),
++      folderId,
++      limit,
++      query: options.query,
++      unreadOnly: options.unreadOnly,
++      cursor: options.pageToken,
++    });
++    if (!Array.isArray(page.messages))
++      throw new Error("Bridge returned an invalid message page");
++    for (const message of page.messages) this.assertMessageAccount(message);
++    const folders = await this.getThunderbirdFolders();
++    const references = this.references();
++    const messages = page.messages.map((message) => {
++      const parsed = withFolderRole(toInboxZeroMessage(message), folders);
++      references.set(parsed.id, message.id);
++      return parsed;
++    });
++    return { messages, nextPageToken: page.nextCursor };
++  }
++
++  async getInboxMessages(maxResults = 25) {
++    return (
++      await this.getMessagesWithPagination({ inboxOnly: true, maxResults })
++    ).messages;
++  }
++
++  async getInboxStats() {
++    const folders = await this.getThunderbirdFolders();
++    const inbox = folders.find((folder) => folder.specialUse.includes("inbox"));
++    if (!inbox)
++      throw new Error("This account has no identifiable inbox folder");
++    return { total: inbox.total, unread: inbox.unread };
++  }
++
++  protected selectedAccount() {
++    if (!this.accountId)
++      throw new Error("Select a Thunderbird account before reading mail");
++    return this.accountId;
++  }
++
++  private references() {
++    const account = this.selectedAccount();
++    let references = messageReferences.get(account);
++    if (!references) {
++      references = new Map();
++      messageReferences.set(account, references);
++    }
++    return references;
++  }
++
++  private async readNativeMessage(id: number) {
++    const message = await this.request<ThunderbirdMessage>(
++      "POST",
++      "/inbox-zero/message",
++      { accountId: this.accountId, messageId: id },
++    );
++    this.assertMessageAccount(message);
++    return message;
++  }
++
++  private async findMessageReference(messageId: string): Promise<number> {
++    let pageToken: string | undefined;
++    do {
++      const page = await this.getMessagesWithPagination({
++        maxResults: 100,
++        pageToken,
++        includeDrafts: true,
++      });
++      if (page.messages.some((message) => message.id === messageId))
++        return this.references().get(messageId)!;
++      pageToken = page.nextPageToken;
++    } while (pageToken);
++    throw new ThunderbirdMessageNotFoundError(
++      "Message not found: Thunderbird's message IDs changed or the message was moved; refresh the mailbox",
++    );
++  }
++
++  private assertMessageAccount(message: ThunderbirdMessage) {
++    if (message.accountId !== this.selectedAccount())
++      throw new Error("Message belongs to another account");
++    if (
++      !Number.isSafeInteger(message.id) ||
++      message.id < 1 ||
++      !Number.isFinite(Date.parse(message.date))
++    ) {
++      throw new Error("Bridge returned invalid message metadata");
++    }
++  }
++
++  private async request<T>(
++    method: "GET" | "POST",
++    path: string,
++    body?: unknown,
++  ): Promise<T> {
++    const response = await fetch(`${this.baseUrl}${path}`, {
++      method,
++      redirect: "error",
++      signal: AbortSignal.timeout(10_000),
++      headers: {
++        Authorization: `Bearer ${this.token}`,
++        "Content-Type": "application/json",
++        "X-TB-Timeout": "8000",
++      },
++      body: body === undefined ? undefined : JSON.stringify(body),
++    });
++    const data = await response.json();
++    if (!response.ok || data?.error) {
++      throw new Error(
++        data?.error || `Thunderbird bridge returned HTTP ${response.status}`,
++      );
++    }
++    return data as T;
++  }
++}
++
++function parseMessageId(value: string, accountId: string) {
++  const prefix = `tb:${encodeURIComponent(accountId)}:`;
++  if (!value.startsWith(prefix))
++    throw new Error("Message ID belongs to another account");
++  if (!/^[a-f0-9]{32}$/.test(value.slice(prefix.length)))
++    throw new ThunderbirdMessageNotFoundError(
++      "Invalid message ID: cached Thunderbird reference is no longer available",
++    );
++}
++
++class ThunderbirdMessageNotFoundError extends Error {
++  readonly status = 404;
++}
++
++function withFolderRole(
++  message: ParsedMessage,
++  folders: ThunderbirdFolder[],
++): ParsedMessage {
++  const roles: Record<string, string> = {
++    inbox: "INBOX",
++    sent: "SENT",
++    drafts: "DRAFT",
++    trash: "TRASH",
++    junk: "SPAM",
++    archives: "ARCHIVE",
++  };
++  const folder = folders.find((folder) => folder.id === message.parentFolderId);
++  const labels = (folder?.specialUse ?? [])
++    .map((role) => roles[role])
++    .filter(Boolean);
++  return { ...message, labelIds: [...(message.labelIds ?? []), ...labels] };
++}
++
++export function toInboxZeroMessage(message: ThunderbirdMessage): ParsedMessage {
++  // Thunderbird's numeric IDs can be reused after restart. A fingerprint
++  // prevents a cached reference from opening a different email.
++  const identity = JSON.stringify([
++    message.folderId,
++    message.headerMessageId || [message.date, message.author, message.subject],
++  ]);
++  const fingerprint = createHash("sha256")
++    .update(identity)
++    .digest("hex")
++    .slice(0, 32);
++  const id = `tb:${encodeURIComponent(message.accountId)}:${fingerprint}`;
++  const header = (name: string) => message.headers?.[name]?.join(" ");
++  const textPlain = message.parts?.text;
++  const textHtml = message.parts?.html;
++  const labelIds = [...message.tags];
++  if (!message.read) labelIds.push("UNREAD");
++  if (message.flagged) labelIds.push("STARRED");
++  return {
++    id,
++    // Conversation grouping will require RFC reference indexing.
++    threadId: id,
++    historyId: "",
++    date: message.date,
++    internalDate: String(Date.parse(message.date)),
++    parentFolderId: message.folderId,
++    subject: message.subject,
++    snippet: textPlain?.trim().replace(/\s+/g, " ").slice(0, 200) || "",
++    textPlain,
++    textHtml,
++    bodyContentType: textPlain ? "text" : textHtml ? "html" : undefined,
++    labelIds,
++    inline: [],
++    hasAttachment: message.parts
++      ? !!message.parts.attachments.length
++      : undefined,
++    attachments: message.parts?.attachments.map((attachment) => ({
++      attachmentId: attachment.partName,
++      filename: attachment.name,
++      mimeType: attachment.contentType,
++      size: attachment.size,
++      headers: {
++        "content-description": "",
++        "content-id": "",
++        "content-transfer-encoding": "",
++        "content-type": attachment.contentType,
++      },
++    })),
++    headers: {
++      from: message.author,
++      to: message.recipients.join(", "),
++      cc: message.ccList.join(", "),
++      subject: message.subject,
++      date: header("date") || message.date,
++      "message-id": header("message-id") || message.headerMessageId,
++      "in-reply-to": header("in-reply-to"),
++      references: header("references"),
++      "reply-to": header("reply-to"),
++      "list-unsubscribe": header("list-unsubscribe"),
++      "list-unsubscribe-post": header("list-unsubscribe-post"),
++    },
++  };
++}
+diff --git a/compose.thunderbird.yaml b/compose.thunderbird.yaml
+new file mode 100644
+index 0000000..10793e0
+--- /dev/null
++++ b/compose.thunderbird.yaml
+@@ -0,0 +1,34 @@
++name: inbox-zero-thunderbird
++services:
++  db:
++    image: postgres:16
++    environment:
++      POSTGRES_USER: postgres
++      POSTGRES_DB: inboxzero
++      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?private env file required}
++    ports: ["127.0.0.1:5446:5432"]
++    volumes: ["thunderbird-db:/var/lib/postgresql/data"]
++    mem_limit: 512m
++    restart: unless-stopped
++    healthcheck:
++      test: [CMD-SHELL, pg_isready -U postgres]
++      interval: 5s
++      timeout: 5s
++      retries: 20
++  redis:
++    image: redis:7
++    ports: ["127.0.0.1:6386:6379"]
++    mem_limit: 64m
++    restart: unless-stopped
++  redis-http:
++    image: hiett/serverless-redis-http:latest
++    environment:
++      SRH_MODE: env
++      SRH_TOKEN: ${REDIS_HTTP_TOKEN:?private env file required}
++      SRH_CONNECTION_STRING: redis://redis:6379
++    ports: ["127.0.0.1:8076:80"]
++    depends_on: [redis]
++    mem_limit: 128m
++    restart: unless-stopped
++volumes:
++  thunderbird-db:

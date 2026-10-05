@@ -1,0 +1,3 @@
+# Preserve unified-diff context and verbatim upstream license text.
+integration/*.patch whitespace=-blank-at-eol
+licenses/*.txt whitespace=-blank-at-eol

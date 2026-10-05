@@ -1,0 +1,12 @@
+{
+  "inbox-zero": {
+    "url": "https://github.com/elie222/inbox-zero.git",
+    "revision": "4cbf34cbca6c455cb159a2994421ee478d073727",
+    "patch": "integration/inbox-zero.patch"
+  },
+  "thunderbird-cli": {
+    "url": "https://github.com/vitalio-sh/thunderbird-cli.git",
+    "revision": "465613daecb3228cc588ba90c77f395d9c92e375",
+    "patch": "integration/thunderbird-cli.patch"
+  }
+}

@@ -1,0 +1,96 @@
+diff --git a/bridge/bridge.js b/bridge/bridge.js
+index 573f5f4..bcdf23f 100755
+--- a/bridge/bridge.js
++++ b/bridge/bridge.js
+@@ -27,6 +27,7 @@ import { createServer } from "http";
+ import { isIP } from "net";
+ import { WebSocketServer } from "ws";
+ import { randomUUID, timingSafeEqual } from "crypto";
++import { isReadOnlyRoute } from "./read-only.js";
+ 
+ const HTTP_PORT = parseInt(process.argv.find((_, i, a) => a[i - 1] === "--port") || "7700");
+ const WS_PORT = parseInt(process.argv.find((_, i, a) => a[i - 1] === "--ws-port") || "7701");
+@@ -55,6 +56,12 @@ if (RAW_AUTH_TOKEN !== undefined && RAW_AUTH_TOKEN.trim() === "") {
+   process.exit(1);
+ }
+ const AUTH_TOKEN = RAW_AUTH_TOKEN ?? null;
++const READ_ONLY = process.argv.includes("--read-only");
++const WS_AUTH_TOKEN = process.env.TB_WS_AUTH_TOKEN;
++if (READ_ONLY && (!AUTH_TOKEN || !WS_AUTH_TOKEN)) {
++  console.error("[bridge] Read-only local setup requires both HTTP and extension authentication.");
++  process.exit(1);
++}
+ 
+ function isAuthorized(req) {
+   if (!AUTH_TOKEN) return true;
+@@ -125,6 +132,12 @@ const wss = new WebSocketServer({
+       console.error(`[bridge] Rejected WebSocket connection from web origin ${req.headers.origin}`);
+       return false;
+     }
++    if (WS_AUTH_TOKEN) {
++      const token = new URL(req.url, "http://127.0.0.1").searchParams.get("token") || "";
++      const actual = Buffer.from(token);
++      const expected = Buffer.from(WS_AUTH_TOKEN);
++      if (actual.length !== expected.length || !timingSafeEqual(actual, expected)) return false;
++    }
+     return true;
+   },
+ });
+@@ -248,6 +261,12 @@ const httpServer = createServer(async (req, res) => {
+     return;
+   }
+ 
++  if (READ_ONLY && !isReadOnlyRoute(req.method, req.url)) {
++    res.writeHead(403);
++    res.end(JSON.stringify({ error: "This local bridge only permits reading mail.", code: "FORBIDDEN" }));
++    return;
++  }
++
+   // Bridge status endpoint (doesn't need extension)
+   if (req.url === "/bridge/status") {
+     const status = {
+@@ -256,6 +275,7 @@ const httpServer = createServer(async (req, res) => {
+       httpPort: HTTP_PORT,
+       wsPort: WS_PORT,
+       defaultTimeoutMs: DEFAULT_TIMEOUT,
++      readOnly: READ_ONLY,
+     };
+     res.writeHead(200);
+     res.end(JSON.stringify(status));
+@@ -264,7 +284,14 @@ const httpServer = createServer(async (req, res) => {
+ 
+   // Read body
+   let body = "";
+-  for await (const chunk of req) body += chunk;
++  for await (const chunk of req) {
++    body += chunk;
++    if (Buffer.byteLength(body) > 16384) {
++      res.writeHead(413);
++      res.end(JSON.stringify({ error: "Request too large", code: "INVALID_ARGS" }));
++      return;
++    }
++  }
+ 
+   let parsedBody = null;
+   if (body.trim()) {
+@@ -282,7 +309,7 @@ const httpServer = createServer(async (req, res) => {
+   const headerTimeout = req.headers["x-tb-timeout"];
+   if (headerTimeout) {
+     const parsed = parseInt(headerTimeout);
+-    if (parsed > 0) timeoutMs = parsed;
++    if (parsed > 0) timeoutMs = Math.min(parsed, DEFAULT_TIMEOUT);
+   }
+ 
+   // Forward to extension
+diff --git a/bridge/read-only.js b/bridge/read-only.js
+new file mode 100644
+index 0000000..26569dc
+--- /dev/null
++++ b/bridge/read-only.js
+@@ -0,0 +1,6 @@
++export function isReadOnlyRoute(method, path) {
++  if (method === "GET") return ["/bridge/status", "/health", "/inbox-zero/accounts"].includes(path);
++  return method === "POST" && [
++    "/inbox-zero/folders", "/inbox-zero/messages", "/inbox-zero/message",
++  ].includes(path);
++}

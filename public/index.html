@@ -1,0 +1,12 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Thunderbird + Inbox Zero</title><link rel="stylesheet" href="/style.css"><script src="/app.js" defer></script></head>
+<body><main>
+<p class="eyebrow">LOCAL EMAIL CONNECTION</p><h1>Thunderbird + Inbox Zero</h1>
+<p class="intro">A preview of the new mail adapter. Search and read email through Thunderbird. AI processing is disabled.</p>
+<div class="status"><span id="status">Checking connection…</span><button id="refresh">Refresh connection</button></div>
+<p class="note">This preview is separate from Inbox Zero’s main interface. It uses the adapter being developed for that app.</p>
+<section id="setup"><h2>Connect your mailbox</h2><ol><li>Open the prepared Thunderbird app and add your email account.</li><li>Complete Microsoft sign-in and MFA in Thunderbird.</li><li>Refresh the connection here, then select your account.</li></ol><p>The local extension reads email only. Sending, deleting, moving and AI calls are disabled.</p></section>
+<div class="controls"><label>Account<select id="account"><option value="">Select an account</option></select></label><label>Folder<select id="folder"><option value="">All folders</option></select></label><label>Search<input id="query" placeholder="Find messages…" maxlength="500"></label><button id="search">Load messages</button></div>
+<div class="sample"><button id="sample">Try a sample email</button><span>Made-up data. No account required.</span></div>
+<p id="feedback" role="status"></p><div class="mail"><section><h2 id="list-title">Messages</h2><p id="count" class="note" role="status"></p><div id="messages" class="messages"><p class="empty">Select an account, or try the sample.</p></div><div class="list-actions"><button id="more" hidden>Load next page</button><button id="all" hidden>Load full message list</button><button id="stop" hidden>Stop loading</button></div></section><article><h2 id="subject">Select a message</h2><p id="sender"></p><pre id="body">Message text will appear here.</pre><details><summary>Inbox Zero adapter output</summary><pre id="mapped"></pre></details></article></div>
+</main></body></html>
