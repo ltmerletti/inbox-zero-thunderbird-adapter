@@ -84,7 +84,7 @@ index 6e93172..452b954 100644
            categories={
              isAllAccounts
 diff --git a/apps/web/app/(app)/layout.tsx b/apps/web/app/(app)/layout.tsx
-index 63984ac..5b2197c 100644
+index 63984ac..0892fae 100644
 --- a/apps/web/app/(app)/layout.tsx
 +++ b/apps/web/app/(app)/layout.tsx
 @@ -25,6 +25,7 @@ import { captureException } from "@/utils/error";
@@ -95,22 +95,7 @@ index 63984ac..5b2197c 100644
  
  const logger = createScopedLogger("AppLayout");
  
-@@ -97,6 +98,14 @@ export default async function AppLayout({
-               <AiAutomationStatusBanner />
-               <ErrorMessages />
-               <ProviderRateLimitBanner />
-+              {env.LOCAL_THUNDERBIRD_ENABLED && (
-+                <div
-+                  role="status"
-+                  className="border-b bg-muted px-4 py-2 text-sm text-muted-foreground"
-+                >
-+                  Mail through Thunderbird · read-only · AI disabled
-+                </div>
-+              )}
-               {children}
-             </SideNavWithTopNav>
-             <EmailViewer />
-@@ -106,7 +115,7 @@ export default async function AppLayout({
+@@ -106,7 +107,7 @@ export default async function AppLayout({
                <PostHogIdentify />
  
                <CommandK />
