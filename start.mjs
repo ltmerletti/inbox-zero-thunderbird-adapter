@@ -66,8 +66,10 @@ if (process.argv.includes('--serve')) {
     TB_AUTH_TOKEN: secrets.http, TB_WS_AUTH_TOKEN: secrets.ws, TB_BRIDGE_TIMEOUT: '10000',
   });
   await launch('preview', process.execPath, [`${root}start.mjs`, '--serve']);
-  const executable = `${root}Thunderbird.app/Contents/MacOS/thunderbird`;
-  if (existsSync(executable)) await launch('thunderbird', executable, ['-no-remote', '-profile', profile]);
+  const bundled = `${root}Thunderbird.app/Contents/MacOS/thunderbird`;
+  const executable = process.env.THUNDERBIRD_EXECUTABLE || (existsSync(bundled) ? bundled : '/Applications/Thunderbird.app/Contents/MacOS/thunderbird');
+  if (!existsSync(executable)) throw new Error('Thunderbird is missing. Install Thunderbird or set THUNDERBIRD_EXECUTABLE.');
+  await launch('thunderbird', executable, ['-no-remote', '-profile', profile]);
   await writeFile(`${privateDir}/processes.json`, JSON.stringify(processes), { mode: 0o600 });
   console.log('Started Thunderbird, a read-only bridge, and the Inbox Zero adapter preview.');
   console.log('Open http://127.0.0.1:3001. Add your email account in Thunderbird when ready.');

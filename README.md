@@ -1,98 +1,105 @@
 # Inbox Zero + Thunderbird
 
-A local, read-only Thunderbird adapter for the actual Inbox Zero app.
-Thunderbird handles the email account's Microsoft sign-in; an authenticated
-bridge on this computer supplies mail to Inbox Zero. **AI is disabled.**
+Use Inbox Zero with email connected through Thunderbird, on your own Mac.
+Your mail and credentials stay in the local installation. **This version is
+read-only and AI is disabled. It never downloads or starts an AI model.**
 
-## Start
+## Install
 
-1. Start Docker Desktop.
-2. Double-click `Start Inbox Zero.command`.
-3. Open http://127.0.0.1:3000 and keep Thunderbird open.
+Open Terminal, paste this command, and press Return:
 
-Inbox Zero uses a separate local login. Its password is saved privately in
-`.private/local-inbox-zero-password.txt`, not in Git.
+```bash
+/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/ltmerletti/inbox-zero-thunderbird-adapter/main/install.sh)"
+```
+
+The installer handles Homebrew, Git, Node.js 24, Docker Desktop, Thunderbird,
+Inbox Zero, the adapter, private configuration, and database setup. Existing
+applications are reused. The first installation downloads dependencies and can
+take several minutes.
+
+**Currently supports macOS only.** Homebrew's current system requirements apply;
+see [Homebrew's installation page](https://docs.brew.sh/Installation). macOS may
+ask for an administrator password. If Docker Desktop opens its first-run setup,
+complete that setup while the installer waits.
+
+Then finish these two steps:
+
+1. In the Thunderbird window, add **one email account** and complete its normal
+   Microsoft sign-in and MFA. Keep the Terminal window open; the installer waits
+   for the account and links it automatically.
+2. Inbox Zero opens in your browser. Sign in with your email address and the
+   **separate local password** that opens in a text window. This is not your
+   Microsoft password.
+
+No Microsoft app registration, client-secret editing, or manual database commands
+are needed. Your organization must still allow Thunderbird to connect to the
+mailbox. This does not bypass its access policies.
+
+## Start it again
+
+Open this folder in Finder:
+
+```text
+~/.local/share/inbox-zero-thunderbird/thunderbird-inbox-zero
+```
+
+Start Docker Desktop, then double-click **Start Inbox Zero.command**.
+Open [Inbox Zero](http://127.0.0.1:3000) and keep Thunderbird open.
+
+Your local password is saved in `.private/local-inbox-zero-password.txt` inside
+that folder. The **Stop Thunderbird Adapter.command** stops the adapter's
+Thunderbird and bridge processes; it does not stop the database or Inbox Zero.
+
+## If setup stops
+
+Fix the issue printed in Terminal and run the same installation command again.
+Completed setup files and passwords are preserved. The installer refuses to
+replace a manually configured installation or use ports occupied by another
+installation.
+
+If Docker was still starting, open Docker Desktop, wait until it is ready, and
+rerun the command. If Thunderbird sign-in took longer than 20 minutes, rerun the
+command after completing sign-in.
+
+To use a different installation folder:
+
+```bash
+INBOX_ZERO_INSTALL_DIR="$HOME/InboxZero" /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/ltmerletti/inbox-zero-thunderbird-adapter/main/install.sh)"
+```
 
 ## What works
 
-- Inbox Zero's native mail list and folder views, including custom Outlook folders.
-- Paginated metadata synchronization, basic search, and individual message bodies.
-- Account isolation and message references that handle Thunderbird ID changes.
+- Inbox Zero's native mail list and folders, including custom Outlook folders.
+- Paginated mail synchronization, basic search, and reading individual messages.
+- A separate Thunderbird profile and authenticated local mail bridge.
 
-Sending, moving, archiving, deleting, and changing flags are blocked. Conversations
-currently contain one message; attachment downloads are not implemented. No AI
-model or LM Studio is launched. This is a local development installation.
+Sending, deleting, moving, archiving, changing flags, and AI actions are blocked.
+Conversations currently contain one message; attachment downloads are not
+implemented. This is a local development installation, not a production service.
+The setup supports one mailbox initially.
 
-## Project layout
+Thunderbird stores the mailbox's sign-in. The database runs in Docker; Inbox Zero
+and the mail bridge run on your Mac and bind to local addresses. Private passwords,
+mail data, tokens, profiles, screenshots, and logs are excluded from this repository.
 
-This repository contains the launchers, reader extension, tests, diagnostic
-preview, and the complete source patches for the Inbox Zero provider and
-read-only bridge. `upstreams.json` records the tested upstream revisions.
-Thunderbird itself is not patched or built from source.
+## Updates and development
 
-The launchers use adjacent `../inbox-zero` and `../thunderbird-cli` checkouts.
-The reader extension's source lives here and is not overwritten from an upstream
-checkout when you start the adapter. `../thunderbird-source` is not required.
+The installer uses tested upstream revisions in `upstreams.json`. It never
+silently upgrades an existing installation. Thunderbird uses a reader extension;
+no custom Thunderbird build is required.
 
-The actual app runs on port **3000**. Port **3001** is the diagnostic preview;
-the authenticated mail bridge uses ports **7700/7701**, bound to 127.0.0.1.
+GitHub checks the pinned and latest Inbox Zero/bridge source on pushes, pull
+requests, manual runs, and weekly. The checks apply the integration patches and
+run fake-mailbox tests. They do not connect to email or call an AI model. Breaking
+upstream changes can still require a patch update; the checks do not cover every
+screen or future Thunderbird release.
 
-Run the bridge/reader tests with `npm test`. Tests use fake Thunderbird APIs and
-do not invoke AI or contact a real mailbox.
+For source preparation, configuration details, and update checks, see
+[the developer notes](integration/README.md). Run `npm test` for the
+bridge/extension/reader test and installer configuration tests.
 
-Credentials, the Thunderbird profile and downloaded app, generated extension
-packages, screenshots, and logs are excluded from Git.
+## Attribution
 
-## Prepare a new installation
-
-Use Node.js 24 or newer. Clone this repository into a folder named
-`thunderbird-inbox-zero`, then run this command inside it:
-
-```sh
-node scripts/prepare-upstreams.mjs
-```
-
-It clones the two upstream repositories next to this one, checks out the pinned
-revisions, and applies the integration patches. It refuses to overwrite existing
-checkouts. It does not start services, connect email, or load AI models.
-
-This prepares the source, not a complete unattended installation. Install the
-dependencies with `pnpm install` in Inbox Zero and `npm ci` in thunderbird-cli.
-The macOS launchers also need Docker Desktop, a Thunderbird app at
-`Thunderbird.app`, and private local configuration. See
-[the local setup notes](integration/README.md) for the configuration requirements.
-Never copy another installation's profile, tokens, database, or password.
-
-## Updates
-
-The default setup stays on tested revisions. It does not automatically upgrade
-Inbox Zero or change the running mailbox installation.
-
-To check newer upstream code separately:
-
-```sh
-node scripts/prepare-upstreams.mjs --latest --directory /tmp/inbox-zero-update-check
-```
-
-Use an unused directory each time. Patch application fails if upstream changes
-conflict with this integration. The existing checkouts remain untouched.
-
-GitHub Actions checks both the pinned revisions and the upstream default branches
-on pushes, pull requests, manual runs, and weekly. It applies the patches and runs
-the real bridge/extension/reader integration test with fictional email. It does
-not launch Inbox Zero, Thunderbird, or an AI model, and does not access a mailbox.
-Passing this check verifies patch application and the bridge/reader contract. It
-does not prove that every Inbox Zero screen or a new Thunderbird release works.
-
-Thunderbird uses its public MailExtension APIs, so ordinary updates do not need a
-custom Thunderbird build. Inbox Zero still needs a provider integration; breaking
-upstream changes can require a patch update. Maintenance-free compatibility cannot
-be guaranteed. Keep the working versions until an update is tested.
-
-## Upstream attribution
-
-Inbox Zero comes from [elie222/inbox-zero](https://github.com/elie222/inbox-zero).
-Its patched source retains its upstream license and additional terms, reproduced
-in `licenses/inbox-zero.txt`. The bridge comes from
-[vitalio-sh/thunderbird-cli](https://github.com/vitalio-sh/thunderbird-cli) under
-the MIT license, reproduced in `licenses/thunderbird-cli.txt`.
+The app comes from [elie222/inbox-zero](https://github.com/elie222/inbox-zero).
+The bridge comes from [vitalio-sh/thunderbird-cli](https://github.com/vitalio-sh/thunderbird-cli).
+Their licenses and additional terms are reproduced in `licenses/`.

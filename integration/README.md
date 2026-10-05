@@ -1,5 +1,9 @@
 # Integration and local setup
 
+The [one-command installer](../README.md#install) handles the configuration,
+dependency installation, migrations, and initial mailbox linking described below.
+These notes are for development and manual setup.
+
 `inbox-zero.patch` adds the Thunderbird provider, local password login, native
 folder navigation, mail-engine support, and the server-side AI-off guard.
 `thunderbird-cli.patch` adds an authenticated read-only bridge mode. Neither patch
@@ -49,8 +53,9 @@ the separate local login, and refuses to change conflicting account ownership.
 It requires exactly one Thunderbird account for initial setup.
 
 The source preparation and compatibility tests do not perform these private setup
-steps. The launchers currently assume Node at `/opt/homebrew/bin/node` and Docker
-at `/usr/local/bin/docker`; adjust those paths for another installation.
+steps. The installer does perform them. The launchers find Homebrew's Node.js 24
+and Docker Desktop through their search path. The macOS installer installs missing
+tools and uses a dedicated Thunderbird profile.
 
 ## Validating an update
 

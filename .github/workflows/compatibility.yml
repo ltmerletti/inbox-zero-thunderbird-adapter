@@ -37,4 +37,7 @@ jobs:
         run: npm ci --ignore-scripts
       - name: Test the bridge, reader extension, and Inbox Zero mapping with fake mail
         working-directory: thunderbird-inbox-zero
-        run: npm test
+        run: |
+          bash -n install.sh
+          node --check scripts/install.mjs
+          npm test
