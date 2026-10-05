@@ -42,7 +42,7 @@ export async function createLocalConfig(root) {
     DEFAULT_LLMS: 'openai:gpt-4o-mini', LOCAL_AI_DISABLED: 'true', LOCAL_THUNDERBIRD_ENABLED: 'true',
     THUNDERBIRD_BRIDGE_URL: 'http://127.0.0.1:7700', THUNDERBIRD_BRIDGE_TOKEN: state.http,
     NEXT_PUBLIC_BYPASS_PREMIUM_CHECKS: 'true', NEXT_PUBLIC_AUTO_DRAFT_DISABLED: 'true',
-    NEXT_PUBLIC_AI_MODEL_SETTINGS_DISABLED: 'true', SSO_LOGIN_ENABLED: 'false',
+    NEXT_PUBLIC_AI_MODEL_SETTINGS_DISABLED: 'false', SSO_LOGIN_ENABLED: 'false',
     CLI_LLM_ENABLED: 'false', AI_SENDER_PATTERN_LEARNING_ENABLED: 'false', QUEUE_BACKEND: 'internal',
   };
   await writeOnce(resolve(app, '.env.local'), Object.entries(config).map(([key, value]) => `${key}=${value}`).join('\n') + '\n');

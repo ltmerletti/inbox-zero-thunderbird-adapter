@@ -20,6 +20,7 @@ test('first install makes matching private credentials and retry preserves them'
   const envPath = join(parent, 'inbox-zero/apps/web/.env.local');
   const original = await readFile(envPath, 'utf8');
   assert.match(original, /^LOCAL_AI_DISABLED=true$/m);
+  assert.match(original, /^NEXT_PUBLIC_AI_MODEL_SETTINGS_DISABLED=false$/m);
   assert.match(original, /^LOCAL_THUNDERBIRD_ENABLED=true$/m);
   assert.ok(original.includes(`THUNDERBIRD_BRIDGE_TOKEN=${first.http}`));
   assert.ok(original.includes(`postgres:${first.postgres}@127.0.0.1`));
