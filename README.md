@@ -1,8 +1,8 @@
 # Inbox Zero + Thunderbird
 
 Use Inbox Zero with email connected through Thunderbird, on your own Mac.
-Your mail and credentials stay in the local installation. **This version is
-read-only and AI is disabled. It never downloads or starts an AI model.**
+Your mail and credentials stay in the local installation. **Mail access is read-only. AI uses the provider and model you configure in
+Inbox Zero Settings. The installer does not download or launch a local AI model.**
 
 ## Install
 
@@ -73,7 +73,7 @@ INBOX_ZERO_INSTALL_DIR="$HOME/InboxZero" /bin/bash -c "$(curl -fsSL https://raw.
 - Paginated mail synchronization, basic search, and reading individual messages.
 - A separate Thunderbird profile and authenticated local mail bridge.
 
-Sending, deleting, moving, archiving, changing flags, and AI actions are blocked.
+Sending, deleting, moving, archiving, and changing flags are blocked.
 Conversations currently contain one message; attachment downloads are not
 implemented. This is a local development installation, not a production service.
 The setup supports one mailbox initially.

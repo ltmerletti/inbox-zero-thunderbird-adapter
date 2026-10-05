@@ -5,8 +5,6 @@ import { fileURLToPath } from 'node:url';
 const root=fileURLToPath(new URL('.',import.meta.url));
 const app=`${root}../inbox-zero/apps/web`;
 const saved=`${root}.private/inbox-zero-process.json`;
-const config=await readFile(`${app}/.env.local`,'utf8');
-if(!/^LOCAL_AI_DISABLED=true$/m.test(config)) throw new Error('AI must remain disabled before launching Inbox Zero');
 if(process.argv.includes('--restart')) {
   try {
     const old=JSON.parse(await readFile(saved,'utf8'));
@@ -24,4 +22,4 @@ const log=await open(`${root}.private/inbox-zero.log`,'a',0o600);
 const child=spawn(process.execPath,[cli,'dev','--hostname','127.0.0.1','--port','3000'],{cwd:app,env:{...process.env,NODE_OPTIONS:'--max-old-space-size=2048',NEXT_TELEMETRY_DISABLED:'1'},detached:true,stdio:['ignore',log.fd,log.fd]});
 await new Promise((resolve,reject)=>{child.once('spawn',resolve);child.once('error',reject);});
 child.unref();await log.close();await writeFile(saved,JSON.stringify({pid:child.pid,cli}),{mode:0o600});
-console.log('Starting the real Inbox Zero app at http://127.0.0.1:3000. AI remains disabled.');
+console.log('Starting the real Inbox Zero app at http://127.0.0.1:3000.');

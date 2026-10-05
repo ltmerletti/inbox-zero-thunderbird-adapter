@@ -5,7 +5,7 @@ dependency installation, migrations, and initial mailbox linking described below
 These notes are for development and manual setup.
 
 `inbox-zero.patch` adds the Thunderbird provider, local password login, native
-folder navigation, mail-engine support, and the server-side AI-off guard.
+folder navigation, and mail-engine support.
 `thunderbird-cli.patch` adds an authenticated read-only bridge mode. Neither patch
 contains a mailbox, account identity, OAuth token, or configured password.
 
@@ -32,18 +32,18 @@ The Thunderbird settings in `apps/web/.env.local` must include:
 
 ```dotenv
 LOCAL_THUNDERBIRD_ENABLED=true
-LOCAL_AI_DISABLED=true
 THUNDERBIRD_BRIDGE_URL=http://127.0.0.1:7700
 THUNDERBIRD_BRIDGE_TOKEN=<http token from local .private/secrets.json>
 NEXT_PUBLIC_BASE_URL=http://127.0.0.1:3000
-NEXT_PUBLIC_AUTO_DRAFT_DISABLED=true
+NEXT_PUBLIC_AUTO_DRAFT_DISABLED=false
 NEXT_PUBLIC_AI_MODEL_SETTINGS_DISABLED=false
 ```
 
 The database listens on `127.0.0.1:5446`, Redis on `127.0.0.1:6386`, and the Redis
 HTTP service on `http://127.0.0.1:8076`. Use the same locally generated database
 password and Redis HTTP token in the app and Compose configuration. Keep AI API
-keys absent. The launcher requires `LOCAL_AI_DISABLED=true` before starting the app.
+keys out of Git. Choose an AI provider and model in Inbox Zero Settings; no local
+model is launched by the installer or app launcher.
 
 Install the app dependencies and generate/migrate the Prisma database using Inbox
 Zero's setup instructions for the pinned revision. Once Thunderbird is connected

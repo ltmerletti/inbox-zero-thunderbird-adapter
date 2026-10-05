@@ -39,11 +39,11 @@ export async function createLocalConfig(root) {
     GOOGLE_CLIENT_ID: 'unused-local-thunderbird', GOOGLE_CLIENT_SECRET: 'unused-local-thunderbird',
     GOOGLE_PUBSUB_TOPIC_NAME: 'unused-local-thunderbird',
     REDIS_HTTP_URL: 'http://127.0.0.1:8076', REDIS_HTTP_TOKEN: state.redis, REDIS_URL: 'redis://127.0.0.1:6386',
-    DEFAULT_LLMS: 'openai:gpt-4o-mini', LOCAL_AI_DISABLED: 'true', LOCAL_THUNDERBIRD_ENABLED: 'true',
+    DEFAULT_LLMS: 'openai:gpt-4o-mini', LOCAL_THUNDERBIRD_ENABLED: 'true',
     THUNDERBIRD_BRIDGE_URL: 'http://127.0.0.1:7700', THUNDERBIRD_BRIDGE_TOKEN: state.http,
-    NEXT_PUBLIC_BYPASS_PREMIUM_CHECKS: 'true', NEXT_PUBLIC_AUTO_DRAFT_DISABLED: 'true',
+    NEXT_PUBLIC_BYPASS_PREMIUM_CHECKS: 'true', NEXT_PUBLIC_AUTO_DRAFT_DISABLED: 'false',
     NEXT_PUBLIC_AI_MODEL_SETTINGS_DISABLED: 'false', SSO_LOGIN_ENABLED: 'false',
-    CLI_LLM_ENABLED: 'false', AI_SENDER_PATTERN_LEARNING_ENABLED: 'false', QUEUE_BACKEND: 'internal',
+    CLI_LLM_ENABLED: 'false', QUEUE_BACKEND: 'internal',
   };
   await writeOnce(resolve(app, '.env.local'), Object.entries(config).map(([key, value]) => `${key}=${value}`).join('\n') + '\n');
   return state;
