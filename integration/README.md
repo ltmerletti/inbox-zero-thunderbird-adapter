@@ -5,8 +5,10 @@ dependency installation, migrations, and initial mailbox linking described below
 These notes are for development and manual setup.
 
 `inbox-zero.patch` adds the Thunderbird provider, local password login, native
-folder navigation, and mail-engine support.
-`thunderbird-cli.patch` adds an authenticated read-only bridge mode. Neither patch
+folder navigation, folder moves, and mail-engine support.
+`thunderbird-cli.patch` adds an authenticated limited bridge mode for reading and moving
+mail. The extension uses Thunderbird’s `messagesMove` permission; sending and
+deleting remain blocked in this mode. Neither patch
 contains a mailbox, account identity, OAuth token, or configured password.
 
 The revisions and upstream URLs are in `../upstreams.json`. The preparation script

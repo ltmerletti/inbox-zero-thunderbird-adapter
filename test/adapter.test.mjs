@@ -24,7 +24,7 @@ test('real bridge, extension handlers and Inbox Zero mapping work together witho
   const httpPort = await port(), wsPort = await port();
   const bridgeUrl = `http://127.0.0.1:${httpPort}`;
   const child = spawn(process.execPath, [new URL('../../thunderbird-cli/bridge/bridge.js', import.meta.url).pathname,
-    '--port', String(httpPort), '--ws-port', String(wsPort), '--read-only'], {
+    '--port', String(httpPort), '--ws-port', String(wsPort), '--inbox-zero'], {
     env: { ...process.env, TB_AUTH_TOKEN: token, TB_WS_AUTH_TOKEN: wsToken, TB_BRIDGE_TIMEOUT: '2000' }, stdio: ['ignore', 'pipe', 'pipe'],
   });
   let logs = ''; child.stdout.on('data', data => logs += data); child.stderr.on('data', data => logs += data);
@@ -48,6 +48,9 @@ test('real bridge, extension handlers and Inbox Zero mapping work together witho
   rejectedSocket.terminate();
 
   const folder = { id: 'folder-inbox', accountId: 'account1', name: 'Inbox', path: '/INBOX', specialUse: ['inbox'], subFolders: [] };
+  const destination = { ...folder, id: 'folder-destination', name: 'Applications', path: '/Applications', specialUse: [] };
+  const moves = [];
+  let folderWritable = true;
   const headers = Array.from({ length: 7 }, (_, index) => ({
     id: index + 1, folder, date: new Date('2026-10-05T12:00:00Z'), author: 'Recruiter <test@example.invalid>',
     subject: index === 0 ? '<script>tracking()</script>' : `Mail ${index + 1}`,
@@ -57,11 +60,19 @@ test('real bridge, extension handlers and Inbox Zero mapping work together witho
   const foreign = { ...headers[0], id: 999, folder: { ...folder, accountId: 'account2' } };
   const nativePages = new Map();
   const account = { id: 'account1', type: 'imap', name: 'Test', identities: [{ email: 'student@example.invalid' }],
-    rootFolder: { id: 'root', isRoot: true, subFolders: [folder] } };
+    rootFolder: { id: 'root', isRoot: true, subFolders: [folder, destination] } };
   const messenger = {
     accounts: { list: async () => [account], get: async id => id === account.id ? account : undefined },
-    folders: { get: async id => id === folder.id ? folder : { ...folder, accountId: 'account2' }, getFolderInfo: async () => ({ totalMessageCount: 7, unreadMessageCount: 7 }) },
+    folders: { get: async id => id === folder.id ? folder : id === destination.id ? destination : { ...folder, accountId: 'account2' },
+      getFolderCapabilities: async () => ({ canDeleteMessages: folderWritable, canAddMessages: folderWritable }),
+      getFolderInfo: async () => ({ totalMessageCount: 7, unreadMessageCount: 7 }) },
     messages: {
+      move: async (ids, folderId, options) => {
+        assert.equal(folderId, destination.id);
+        assert.deepEqual(JSON.parse(JSON.stringify(options)), { isUserAction: true });
+        moves.push(...ids);
+        for (const id of ids) headers.find(header => header.id === id).folder = destination;
+      },
       query: async query => {
         assert.equal(query.accountId, 'account1'); assert.equal(query.junk, false);
         const id = randomUUID(); nativePages.set(id, headers.slice(3)); return { id, messages: headers.slice(0, 3) };
@@ -91,7 +102,7 @@ test('real bridge, extension handlers and Inbox Zero mapping work together witho
   runInContext(extensionSource, context);
   await once(sockets[0], 'open');
   const reader = new ThunderbirdMailReader({ baseUrl: bridgeUrl, token, accountId: 'account1' });
-  assert.equal((await reader.getStatus()).readOnly, true);
+  assert.equal((await reader.getStatus()).canMove, true);
   assert.equal((await reader.getAccounts())[0].email, 'student@example.invalid');
   assert.deepEqual(await reader.getInboxStats(), { total: 7, unread: 7 });
   const ids = [];
@@ -126,6 +137,30 @@ test('real bridge, extension handlers and Inbox Zero mapping work together witho
   await assert.rejects(reader.getMessagesWithPagination({ after: new Date() }), /not supported/);
   assert.throws(() => new ThunderbirdMailReader({ baseUrl: 'https://remote.invalid', token }), /127.0.0.1/);
   assert.throws(() => new ThunderbirdMailReader({ baseUrl: bridgeUrl, token: '' }), /private bridge token/);
+  await assert.rejects(reader.moveMessageToFolder(ids[0], 'foreign'), /another account|not found/);
+  const changedMove = await fetch(`${bridgeUrl}/inbox-zero/move`, {
+    method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ accountId: account.id, messageId: 1, folderId: destination.id, expectedIdentity: 'stale' }),
+  });
+  assert.match((await changedMove.json()).error, /Message changed/);
+  const foreignMove = await fetch(`${bridgeUrl}/inbox-zero/move`, {
+    method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ accountId: account.id, messageId: 999, folderId: destination.id, expectedIdentity: 'stale' }),
+  });
+  assert.match((await foreignMove.json()).error, /another account/);
+  assert.equal(moves.length, 0);
+  folderWritable = false;
+  await assert.rejects(reader.moveMessageToFolder(ids[0], destination.id), /does not support moving/);
+  assert.equal(moves.length, 0);
+  folderWritable = true;
+  await reader.moveMessageToFolder(ids[0], destination.id);
+  assert.deepEqual(moves, [1]);
+  assert.equal(headers[0].folder.id, destination.id);
+  const movedId = (await reader.getMessagesWithPagination({ maxResults: 10 })).messages[0].id;
+  assert.notEqual(movedId, ids[0]);
+  assert.equal((await reader.getMessage(movedId)).parentFolderId, destination.id);
+  await assert.rejects(reader.getMessage(ids[0]), /not found/i);
+  headers[0].folder = folder;
 
   const previewPort = await port();
   const preview = createPreviewServer({ token, sessionToken, bridgeUrl, port: previewPort });

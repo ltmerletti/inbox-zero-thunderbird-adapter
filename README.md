@@ -1,7 +1,7 @@
 # Inbox Zero + Thunderbird
 
 Use Inbox Zero with email connected through Thunderbird, on your own Mac.
-Your mail and credentials stay in the local installation. **Mail access is read-only. AI uses the provider and model you configure in
+Your mail and credentials stay in the local installation. **You can read mail and move it into existing folders. AI uses the provider and model you configure in
 Inbox Zero Settings. The installer does not download or launch a local AI model.**
 
 ## Install
@@ -47,8 +47,7 @@ Start Docker Desktop, then double-click **Start Inbox Zero.command**.
 Open [Inbox Zero](http://127.0.0.1:3000) and keep Thunderbird open.
 
 Your local password is saved in `.private/local-inbox-zero-password.txt` inside
-that folder. The **Stop Thunderbird Adapter.command** stops the adapter's
-Thunderbird and bridge processes; it does not stop the database or Inbox Zero.
+that folder. The **Stop Thunderbird Adapter.command** stops the bridge and preview processes; Thunderbird stays open; it does not stop the database or Inbox Zero.
 
 ## If setup stops
 
@@ -73,7 +72,11 @@ INBOX_ZERO_INSTALL_DIR="$HOME/InboxZero" /bin/bash -c "$(curl -fsSL https://raw.
 - Paginated mail synchronization, basic search, and reading individual messages.
 - A separate Thunderbird profile and authenticated local mail bridge.
 
-Sending, deleting, moving, archiving, and changing flags are blocked.
+Select one or more messages, click **Move to folder**, and choose a destination.
+Folders must belong to the connected mailbox. Moves synchronize through
+Thunderbird to your mail server. Creating folders is not implemented yet.
+
+Sending, deleting, archiving, and changing flags are blocked.
 Conversations currently contain one message; attachment downloads are not
 implemented. This is a local development installation, not a production service.
 The setup supports one mailbox initially.

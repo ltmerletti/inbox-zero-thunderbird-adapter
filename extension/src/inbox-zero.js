@@ -34,6 +34,30 @@ async function handle({ method, path, body = {} }) {
   const account = await messenger.accounts.get(body.accountId, true);
   if (!account || account.type === "none") throw new Error("Select a configured email account");
   if (path === "/inbox-zero/folders") return getFolders(account);
+  if (path === "/inbox-zero/move") {
+    if (!Number.isInteger(body.messageId) || body.messageId < 1 || typeof body.folderId !== "string") {
+      throw new Error("Select a message and destination folder");
+    }
+    const destination = await messenger.folders.get(body.folderId);
+    if (!destination || destination.isRoot || destination.accountId !== account.id) {
+      throw new Error("Destination folder belongs to another account or is not a mail folder");
+    }
+    const header = await messenger.messages.get(body.messageId);
+    if (header.folder?.accountId !== account.id) throw new Error("Message belongs to another account");
+    const identity = JSON.stringify([header.folder.id, header.headerMessageId ||
+      [header.date.toISOString(), header.author || "", header.subject || ""]]);
+    if (identity !== body.expectedIdentity) throw new Error("Message changed; refresh before moving it");
+    if (header.folder.id !== destination.id) {
+      const sourceCapabilities = await messenger.folders.getFolderCapabilities(header.folder.id);
+      const destinationCapabilities = await messenger.folders.getFolderCapabilities(destination.id);
+      if (!sourceCapabilities.canDeleteMessages || !destinationCapabilities.canAddMessages) {
+        throw new Error("Source or destination folder does not support moving messages");
+      }
+      await messenger.messages.move([header.id], destination.id, { isUserAction: true });
+      for (const id of [...cursors.keys()]) discardCursor(id);
+    }
+    return { moved: true, folderId: destination.id };
+  }
   if (path === "/inbox-zero/message") {
     const header = await messenger.messages.get(body.messageId);
     if (header.folder?.accountId !== account.id) throw new Error("Message belongs to another account");
@@ -86,7 +110,7 @@ async function handle({ method, path, body = {} }) {
     }
     return { messages: messages.map(formatHeader), nextCursor };
   }
-  throw new Error("This extension only reads mail");
+  throw new Error("This extension only supports reading and moving mail");
 }
 
 async function getFolders(account) {

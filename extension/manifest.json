@@ -1,8 +1,8 @@
 {
   "manifest_version": 2,
   "name": "Inbox Zero Thunderbird Reader",
-  "version": "0.1.0",
-  "description": "Local read-only mail connection for the Inbox Zero adapter preview.",
+  "version": "0.2.0",
+  "description": "Local mail connection for Inbox Zero with folder moves.",
   "browser_specific_settings": {
     "gecko": {
       "id": "inbox-zero-reader@local",
@@ -11,7 +11,8 @@
   },
   "permissions": [
     "accountsRead",
-    "messagesRead"
+    "messagesRead",
+    "messagesMove"
   ],
   "background": {
     "scripts": [

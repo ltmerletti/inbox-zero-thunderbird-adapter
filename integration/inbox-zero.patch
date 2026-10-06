@@ -10,11 +10,67 @@ diff --git a/apps/web/.env.example b/apps/web/.env.example
  NEXT_PUBLIC_BASE_URL=http://localhost:3000
  
  DATABASE_URL="postgresql://postgres:password@localhost:5432/inboxzero?schema=public"
+diff --git a/apps/web/app/(app)/[emailAccountId]/mail/ListToolbar.tsx b/apps/web/app/(app)/[emailAccountId]/mail/ListToolbar.tsx
+index 122527a..9bda46b 100644
+--- a/apps/web/app/(app)/[emailAccountId]/mail/ListToolbar.tsx
++++ b/apps/web/app/(app)/[emailAccountId]/mail/ListToolbar.tsx
+@@ -13,6 +13,7 @@ import {
+   ArchiveRestoreIcon,
+   ChevronDownIcon,
+   ColumnsIcon,
++  FolderInputIcon,
+   MailIcon,
+   MailOpenIcon,
+   RowsIcon,
+@@ -79,6 +80,7 @@ export type ListToolbarProps = {
+   onMarkUnreadSelected: () => void;
+   /** Omitted when the current view can't label (combined inboxes). */
+   onLabelSelected?: () => void;
++  onMoveSelected?: () => void;
+   onClearSelection: () => void;
+ };
+ 
+@@ -107,6 +109,7 @@ export const ListToolbar = memo(function ListToolbar({
+   onMarkReadSelected,
+   onMarkUnreadSelected,
+   onLabelSelected,
++  onMoveSelected,
+   onClearSelection,
+ }: ListToolbarProps) {
+   const LayoutIcon = layout === "split" ? ColumnsIcon : RowsIcon;
+@@ -183,6 +186,19 @@ export const ListToolbar = memo(function ListToolbar({
+             </button>
+           </Tooltip>
+ 
++          {onMoveSelected ? (
++            <Tooltip content="Move to folder">
++              <button
++                type="button"
++                onClick={onMoveSelected}
++                aria-label="Move to folder"
++                className={cn(toolbarButton, "w-8 justify-center px-0")}
++              >
++                <FolderInputIcon className="size-3.5" />
++              </button>
++            </Tooltip>
++          ) : null}
++
+           {onLabelSelected ? (
+             <Tooltip shortcuts={["label"]}>
+               <button
 diff --git a/apps/web/app/(app)/[emailAccountId]/mail/MailShell.tsx b/apps/web/app/(app)/[emailAccountId]/mail/MailShell.tsx
-index 8a96fc8..b1fa72a 100644
+index 8a96fc8..dcc2950 100644
 --- a/apps/web/app/(app)/[emailAccountId]/mail/MailShell.tsx
 +++ b/apps/web/app/(app)/[emailAccountId]/mail/MailShell.tsx
-@@ -124,6 +124,7 @@ export function MailShell() {
+@@ -1,5 +1,7 @@
+ "use client";
+ 
++import { FolderPickerDialog } from "@/app/(app)/[emailAccountId]/mail/FolderPickerDialog";
++
+ import type { ListThread } from "./types";
+ 
+ import { MailPanelErrorBoundary } from "@/app/(app)/[emailAccountId]/mail/MailPanelErrorBoundary";
+@@ -124,6 +126,7 @@ export function MailShell() {
    const { data: accountsData } = useAccounts();
    const isGoogle = isGoogleProvider(provider);
    const isOutlook = isMicrosoftProvider(provider);
@@ -22,7 +78,7 @@ index 8a96fc8..b1fa72a 100644
    const { userLabels } = useEmailLabels();
    const { userLabels: allLabels, mutate: mutateLabels } = useLabels();
    const { folders } = useFolders(provider);
-@@ -764,6 +765,7 @@ export function MailShell() {
+@@ -764,6 +767,7 @@ export function MailShell() {
    );
  
    useEffect(() => {
@@ -30,7 +86,7 @@ index 8a96fc8..b1fa72a 100644
      if (!openReaderThreadKey) {
        readAttemptedForOpenThread.current = null;
        return;
-@@ -786,6 +788,7 @@ export function MailShell() {
+@@ -786,6 +790,7 @@ export function MailShell() {
      readAttemptedForOpenThread.current = openThreadKey;
      markRead([openThreadKey]);
    }, [
@@ -38,7 +94,55 @@ index 8a96fc8..b1fa72a 100644
      isOpenThreadUnread,
      markRead,
      openMessages.length,
-@@ -1257,10 +1260,10 @@ export function MailShell() {
+@@ -852,13 +857,19 @@ export function MailShell() {
+     currentLabelTargets.every(
+       (target) => target.emailAccountId === labelAccountId,
+     );
++  const canMove =
++    canLabel ||
++    (currentLabelTargets.length > 0 &&
++      labelAccount?.account.provider === "thunderbird" &&
++      currentLabelTargets.every(
++        (target) => target.emailAccountId === labelAccountId,
++      ));
+   const openLabelPicker = useStableCallback(() => {
+     if (canLabel)
+       setLabelPicker({ mode: "label", targets: currentLabelTargets });
+   });
+   const openMovePicker = useStableCallback(() => {
+-    if (canLabel)
+-      setLabelPicker({ mode: "move", targets: currentLabelTargets });
++    if (canMove) setLabelPicker({ mode: "move", targets: currentLabelTargets });
+   });
+   const singleActionTarget =
+     actionTargets.length === 1 ? actionTargets.at(0) : undefined;
+@@ -911,7 +922,7 @@ export function MailShell() {
+         markRead: markReadTargets,
+         markSpam: markSpamTargets,
+         markUnread: markUnreadTargets,
+-        move: canLabel ? openMovePicker : undefined,
++        move: canMove ? openMovePicker : undefined,
+         openExternal:
+           isReaderTarget && openExternalUrl
+             ? () =>
+@@ -944,6 +955,7 @@ export function MailShell() {
+       targetsArchived,
+       actionTargets,
+       canLabel,
++      canMove,
+       isReaderTarget,
+       allStarred,
+       starTargets,
+@@ -1087,7 +1099,7 @@ export function MailShell() {
+       extendSelectionDown: () => extendSelection(1),
+       extendSelectionUp: () => extendSelection(-1),
+       label: canLabel ? openLabelPicker : undefined,
+-      move: canLabel ? openMovePicker : undefined,
++      move: canMove ? openMovePicker : undefined,
+       archive: targetsArchived ? undefined : archiveTargets,
+       star: starTargets,
+       markSpam: markSpamTargets,
+@@ -1257,10 +1269,10 @@ export function MailShell() {
    );
    const searchFolders = useMemo(
      () =>
@@ -51,7 +155,24 @@ index 8a96fc8..b1fa72a 100644
    );
    const showSplitTabs = !isScoped && !searchQuery;
    const threadCount = threads.length;
-@@ -1378,7 +1381,7 @@ export function MailShell() {
+@@ -1298,10 +1310,15 @@ export function MailShell() {
+       </EmailAccountScopeProvider>
+     ) : null;
+ 
++  const PickerDialog =
++    pickerAccount?.account.provider === "thunderbird" &&
++    labelPicker?.mode === "move"
++      ? FolderPickerDialog
++      : LabelPickerDialog;
+   const labelPickerDialog =
+     labelPicker && pickerAccount ? (
+       <EmailAccountScopeProvider emailAccount={pickerAccount}>
+-        <LabelPickerDialog
++        <PickerDialog
+           threadIds={labelPicker.targets.map((target) => target.threadId)}
+           mode={labelPicker.mode}
+           onClose={() => setLabelPicker(null)}
+@@ -1378,7 +1395,7 @@ export function MailShell() {
                  searchFolders={searchFolders}
                  searchVariant={getMailSearchVariant({
                    isAllAccounts,
@@ -60,6 +181,27 @@ index 8a96fc8..b1fa72a 100644
                  })}
                  onToggleLayout={toggleLayout}
                  expandedPreview={expandedPreview}
+@@ -1398,6 +1415,11 @@ export function MailShell() {
+                 onMarkReadSelected={markReadTargets}
+                 onMarkUnreadSelected={markUnreadTargets}
+                 onLabelSelected={canLabel ? openLabelPicker : undefined}
++                onMoveSelected={
++                  labelAccount?.account.provider === "thunderbird" && canMove
++                    ? openMovePicker
++                    : undefined
++                }
+                 onClearSelection={selection.clear}
+               />
+               {showSplitTabs && (
+@@ -1502,7 +1524,7 @@ export function MailShell() {
+                 onMarkSpam={markSpamTargets}
+                 onDelete={trashTargets}
+                 onLabel={canLabel ? openLabelPicker : undefined}
+-                onMove={canLabel ? openMovePicker : undefined}
++                onMove={canMove ? openMovePicker : undefined}
+                 isMenuOpen={isMenuOpen}
+                 onMenuOpenChange={setIsMenuOpen}
+                 enableMessageNavigation={!sidePanelThreadId}
 diff --git a/apps/web/app/(app)/[emailAccountId]/mail/MailShellSidebar.tsx b/apps/web/app/(app)/[emailAccountId]/mail/MailShellSidebar.tsx
 index 6e93172..452b954 100644
 --- a/apps/web/app/(app)/[emailAccountId]/mail/MailShellSidebar.tsx
@@ -276,15 +418,76 @@ index c217d2e..1fbdb2d 100644
    removeThreadLabel(threadId: string, labelId: string): Promise<void>;
    removeThreadLabels(threadId: string, labelIds: string[]): Promise<void>;
    renameFolder(folderId: string, name: string): Promise<void>;
+diff --git a/apps/web/utils/mail-api/operations.test.ts b/apps/web/utils/mail-api/operations.test.ts
+index 1c92688..2cbd86c 100644
+--- a/apps/web/utils/mail-api/operations.test.ts
++++ b/apps/web/utils/mail-api/operations.test.ts
+@@ -46,6 +46,50 @@ describe("createEmailProviderOperationExecutor", () => {
+   beforeEach(() => {
+     vi.clearAllMocks();
+   });
++  it("allows Thunderbird folder moves but rejects other mutations", async () => {
++    const moveThreadToFolder = vi.fn();
++    const provider = {
++      name: "thunderbird",
++      moveThreadToFolder,
++      getMessage: vi.fn(async () => ({
++        id: "m1",
++        threadId: "m1",
++        headers: { to: "owner@example.invalid" },
++      })),
++      getMessagesBatch: vi.fn(async () => []),
++      archiveMessages: vi.fn(),
++    } as unknown as EmailProvider;
++    const executor = createEmailProviderOperationExecutor({
++      provider,
++      accountId: "acc-1",
++    });
++    const base = metadataOperation([{ accountId: "acc-1", messageId: "m1" }]);
++    const result = await executor.execute({
++      operation: {
++        ...base,
++        intent: {
++          kind: "metadata",
++          targets: [{ accountId: "acc-1", messageId: "m1" }],
++          change: { kind: "move", folderId: "destination" },
++        },
++      },
++      attemptId: "move-test",
++      signal: new AbortController().signal,
++    });
++    expect(result.status).toBe("confirmed");
++    expect(moveThreadToFolder).toHaveBeenCalledWith(
++      "m1",
++      "owner@example.invalid",
++      "destination",
++    );
++    const rejected = await executor.execute({
++      operation: base,
++      attemptId: "archive-test",
++      signal: new AbortController().signal,
++    });
++    expect(rejected.status).toBe("rejected");
++    expect(provider.archiveMessages).not.toHaveBeenCalled();
++  });
+   it("archives every target with one provider call and one batched read", async () => {
+     const archiveMessages = vi.fn();
+     const getMessage = vi.fn();
 diff --git a/apps/web/utils/mail-api/operations.ts b/apps/web/utils/mail-api/operations.ts
-index 05761fa..9c6ce7c 100644
+index 05761fa..f59a5af 100644
 --- a/apps/web/utils/mail-api/operations.ts
 +++ b/apps/web/utils/mail-api/operations.ts
-@@ -65,6 +65,8 @@ export function createEmailProviderOperationExecutor(input: {
+@@ -65,6 +65,14 @@ export function createEmailProviderOperationExecutor(input: {
    const { provider, accountId } = input;
    return {
      async execute({ operation }) {
-+      if (provider.name === "thunderbird")
++      if (
++        provider.name === "thunderbird" &&
++        !(
++          operation.intent.kind === "metadata" &&
++          operation.intent.change.kind === "move"
++        )
++      )
 +        return { status: "rejected", code: "unsupported", targets: [] };
        if (operation.intent.kind === "send") {
          return executeSend(provider, accountId, operation);
@@ -533,6 +736,125 @@ index b5f612f..86afd9e 100644
          "SCIM_CREDENTIAL_HASH_SECRET",
          "AUTH_ALLOWED_EMAILS",
          "AUTH_ALLOWED_EMAIL_DOMAINS",
+diff --git a/apps/web/app/(app)/[emailAccountId]/mail/FolderPickerDialog.tsx b/apps/web/app/(app)/[emailAccountId]/mail/FolderPickerDialog.tsx
+new file mode 100644
+index 0000000..9aabc09
+--- /dev/null
++++ b/apps/web/app/(app)/[emailAccountId]/mail/FolderPickerDialog.tsx
+@@ -0,0 +1,113 @@
++"use client";
++
++import { useRef, useState } from "react";
++import { toast } from "sonner";
++import { LoadingContent } from "@/components/LoadingContent";
++import {
++  Command,
++  CommandEmpty,
++  CommandGroup,
++  CommandInput,
++  CommandItem,
++  CommandList,
++} from "@/components/ui/command";
++import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
++import { useFolders } from "@/hooks/useFolders";
++import { useAccount } from "@/providers/EmailAccountProvider";
++import { useOptionalMailClient } from "@inboxzero/mail-react/MailEngineProvider";
++import { flattenOutlookFolders } from "@/utils/outlook/folders";
++import { randomUuid } from "@/utils/uuid";
++
++export function FolderPickerDialog({
++  threadIds,
++  onClose,
++  onApplied,
++}: {
++  threadIds: string[];
++  onClose: () => void;
++  onApplied: (threadIds: string[], folderId: string) => void;
++  mode?: "label" | "move";
++}) {
++  const { emailAccountId, provider } = useAccount();
++  const client = useOptionalMailClient();
++  const { folders, isLoading, error, mutate } = useFolders(provider);
++  const [isPending, setIsPending] = useState(false);
++  const pending = useRef(false);
++
++  async function move(folderId: string) {
++    if (pending.current || !client) return;
++    pending.current = true;
++    setIsPending(true);
++    try {
++      const admission = await client.submitConversations({
++        accountId: emailAccountId,
++        commandId: randomUuid(),
++        conversations: threadIds.map((conversationId) => ({
++          accountId: emailAccountId,
++          conversationId,
++        })),
++        change: { kind: "move", folderId },
++        observedRevision: (await client.getDiagnostics(emailAccountId))
++          .revision,
++      });
++      if (admission.status === "rejected")
++        throw new Error("Couldn't queue this move. Refresh and try again.");
++      toast.success(
++        threadIds.length === 1
++          ? "Move queued"
++          : `Queued ${threadIds.length} messages to move`,
++      );
++      onApplied(threadIds, folderId);
++      mutate().catch(() => {});
++      onClose();
++    } catch (error) {
++      toast.error(
++        error instanceof Error ? error.message : "Couldn't move messages",
++      );
++    } finally {
++      pending.current = false;
++      setIsPending(false);
++    }
++  }
++
++  return (
++    <Dialog
++      open
++      onOpenChange={(open) => {
++        if (!open && !pending.current) onClose();
++      }}
++    >
++      <DialogContent
++        aria-describedby={undefined}
++        className="gap-0 overflow-hidden p-0 sm:max-w-md"
++      >
++        <DialogTitle className="sr-only">Move conversations</DialogTitle>
++        <Command>
++          <CommandInput
++            aria-label="Search folders"
++            placeholder="Move to folder…"
++            disabled={isPending}
++          />
++          <LoadingContent loading={isLoading} error={error}>
++            <CommandList aria-busy={isPending}>
++              <CommandEmpty>No matching folders.</CommandEmpty>
++              <CommandGroup>
++                {flattenOutlookFolders(folders).map((folder) => (
++                  <CommandItem
++                    key={folder.id}
++                    value={folder.id}
++                    keywords={[folder.path]}
++                    onSelect={() => move(folder.id)}
++                    disabled={isPending || !client}
++                  >
++                    {folder.path}
++                  </CommandItem>
++                ))}
++              </CommandGroup>
++            </CommandList>
++          </LoadingContent>
++        </Command>
++      </DialogContent>
++    </Dialog>
++  );
++}
 diff --git a/apps/web/app/(landing)/login/ThunderbirdLoginForm.tsx b/apps/web/app/(landing)/login/ThunderbirdLoginForm.tsx
 new file mode 100644
 index 0000000..7358d43
@@ -750,10 +1072,10 @@ index 0000000..6f950b9
 +}
 diff --git a/apps/web/utils/email/thunderbird-provider.test.ts b/apps/web/utils/email/thunderbird-provider.test.ts
 new file mode 100644
-index 0000000..ba28215
+index 0000000..d5675cf
 --- /dev/null
 +++ b/apps/web/utils/email/thunderbird-provider.test.ts
-@@ -0,0 +1,103 @@
+@@ -0,0 +1,137 @@
 +import { describe, expect, it, vi } from "vitest";
 +import { ThunderbirdProvider } from "./thunderbird-provider";
 +import type { ParsedMessage } from "@/utils/types";
@@ -786,6 +1108,40 @@ index 0000000..ba28215
 +}
 +
 +describe("Thunderbird provider snapshot synchronization", () => {
++  it("resolves folder IDs and refuses ambiguous names before moving", async () => {
++    const provider = reader("folder-test");
++    vi.spyOn(provider, "getThunderbirdFolders").mockResolvedValue([
++      {
++        id: "first",
++        accountId: "folder-test",
++        name: "Applications",
++        path: "/Applications",
++        specialUse: [],
++        total: 0,
++        unread: 0,
++      },
++      {
++        id: "second",
++        accountId: "folder-test",
++        name: "Applications",
++        path: "/Archive/Applications",
++        specialUse: [],
++        total: 0,
++        unread: 0,
++      },
++    ]);
++    const move = vi.spyOn(provider, "moveMessageToFolder").mockResolvedValue();
++    await expect(
++      provider.moveThreadToFolder(
++        "one",
++        "owner@example.invalid",
++        "Applications",
++      ),
++    ).rejects.toThrow("ambiguous");
++    expect(move).not.toHaveBeenCalled();
++    await provider.moveThreadToFolder("one", "owner@example.invalid", "second");
++    expect(move).toHaveBeenCalledWith("one", "second");
++  });
 +  it("paginates snapshots, replays retries, and reports changed flags and deleted messages", async () => {
 +    const provider = reader("snapshot-test");
 +    const list = vi.spyOn(provider, "getMessagesWithPagination");
@@ -845,24 +1201,24 @@ index 0000000..ba28215
 +    const fetchSpy = vi.spyOn(globalThis, "fetch");
 +    expect(() =>
 +      provider.trashThread("one", "owner@example.com", "user"),
-+    ).toThrow("read-only");
++    ).toThrow("only supports reading and moving");
 +    expect(() =>
 +      provider.sendEmail({
 +        to: "someone@example.com",
 +        subject: "Hello",
 +        messageText: "Hello",
 +      }),
-+    ).toThrow("read-only");
++    ).toThrow("only supports reading and moving");
 +    expect(fetchSpy).not.toHaveBeenCalled();
 +    fetchSpy.mockRestore();
 +  });
 +});
 diff --git a/apps/web/utils/email/thunderbird-provider.ts b/apps/web/utils/email/thunderbird-provider.ts
 new file mode 100644
-index 0000000..8d24754
+index 0000000..937def4
 --- /dev/null
 +++ b/apps/web/utils/email/thunderbird-provider.ts
-@@ -0,0 +1,405 @@
+@@ -0,0 +1,425 @@
 +import { randomUUID } from "node:crypto";
 +import { ThunderbirdMailReader } from "@/utils/email/thunderbird";
 +import type {
@@ -895,7 +1251,7 @@ index 0000000..8d24754
 +  readonly localMailSyncStrategy = "account-history";
 +
 +  toJSON() {
-+    return { name: this.name, type: "local-read-only" };
++    return { name: this.name, type: "local-mail" };
 +  }
 +
 +  async getFolders() {
@@ -1177,7 +1533,28 @@ index 0000000..8d24754
 +      strategy: this.localMailSyncStrategy,
 +    } as const;
 +  }
-+  // Unsupported operations fail explicitly; the Thunderbird extension itself has no write permissions.
++  async moveThreadToFolder(
++    threadId: string,
++    _ownerEmail: string,
++    folderName: string,
++  ) {
++    const folders = await this.getThunderbirdFolders();
++    const byId = folders.find((folder) => folder.id === folderName);
++    const matches = byId
++      ? [byId]
++      : folders.filter(
++          (folder) => folder.path === folderName || folder.name === folderName,
++        );
++    if (matches.length !== 1)
++      throw new Error(
++        matches.length
++          ? "Folder name is ambiguous; choose its folder ID"
++          : "Destination folder not found",
++      );
++    await this.moveMessageToFolder(threadId, matches[0].id);
++  }
++
++  // Moving to an existing folder is supported; other writes remain unavailable.
 +  archiveMessage: EmailProvider["archiveMessage"] = unsupported;
 +  archiveMessages: EmailProvider["archiveMessages"] = unsupported;
 +  archiveThread: EmailProvider["archiveThread"] = unsupported;
@@ -1228,7 +1605,6 @@ index 0000000..8d24754
 +  markRead: EmailProvider["markRead"] = unsupported;
 +  markReadThread: EmailProvider["markReadThread"] = unsupported;
 +  markSpam: EmailProvider["markSpam"] = unsupported;
-+  moveThreadToFolder: EmailProvider["moveThreadToFolder"] = unsupported;
 +  removeThreadLabel: EmailProvider["removeThreadLabel"] = unsupported;
 +  removeThreadLabels: EmailProvider["removeThreadLabels"] = unsupported;
 +  renameFolder: EmailProvider["renameFolder"] = unsupported;
@@ -1249,7 +1625,7 @@ index 0000000..8d24754
 +
 +function unsupported(): never {
 +  throw new Error(
-+    "This Thunderbird connection is read-only; this operation is not available yet.",
++    "This Thunderbird connection only supports reading and moving mail; this operation is not available yet.",
 +  );
 +}
 +function asThread(message: ParsedMessage): EmailThread {
@@ -1270,10 +1646,10 @@ index 0000000..8d24754
 +}
 diff --git a/apps/web/utils/email/thunderbird.ts b/apps/web/utils/email/thunderbird.ts
 new file mode 100644
-index 0000000..964e49b
+index 0000000..74b9c83
 --- /dev/null
 +++ b/apps/web/utils/email/thunderbird.ts
-@@ -0,0 +1,393 @@
+@@ -0,0 +1,425 @@
 +import { createHash } from "node:crypto";
 +import type { EmailProvider, EmailFolderCount } from "@/utils/email/types";
 +import type { ParsedMessage } from "@/utils/types";
@@ -1332,7 +1708,7 @@ index 0000000..964e49b
 +
 +export class ThunderbirdMailReader implements ThunderbirdReader {
 +  readonly name = "thunderbird";
-+  readonly readOnly = true;
++  readonly readOnly = false;
 +  private readonly baseUrl: string;
 +  private readonly token: string;
 +  protected readonly accountId?: string;
@@ -1370,6 +1746,7 @@ index 0000000..964e49b
 +      bridge: string;
 +      extension: string;
 +      readOnly: boolean;
++      canMove: boolean;
 +    }>("GET", "/bridge/status");
 +  }
 +
@@ -1404,6 +1781,40 @@ index 0000000..964e49b
 +  }
 +
 +  async getMessage(messageId: string): Promise<ParsedMessage> {
++    const message = await this.resolveNativeMessage(messageId);
++    return withFolderRole(
++      toInboxZeroMessage(message),
++      await this.getThunderbirdFolders(),
++    );
++  }
++
++  async moveMessageToFolder(
++    messageId: string,
++    folderId: string,
++  ): Promise<void> {
++    const folders = await this.getThunderbirdFolders();
++    if (!folders.some((folder) => folder.id === folderId))
++      throw new Error("Destination folder not found in this account");
++    const message = await this.resolveNativeMessage(messageId);
++    await this.request("POST", "/inbox-zero/move", {
++      accountId: this.selectedAccount(),
++      messageId: message.id,
++      folderId,
++      expectedIdentity: JSON.stringify([
++        message.folderId,
++        message.headerMessageId || [
++          message.date,
++          message.author,
++          message.subject,
++        ],
++      ]),
++    });
++    this.references().delete(messageId);
++  }
++
++  private async resolveNativeMessage(
++    messageId: string,
++  ): Promise<ThunderbirdMessage> {
 +    parseMessageId(messageId, this.selectedAccount());
 +    const references = this.references();
 +    let id = references.get(messageId);
@@ -1427,10 +1838,7 @@ index 0000000..964e49b
 +          "Message not found: Thunderbird's message IDs changed; refresh the mailbox",
 +        );
 +    }
-+    return withFolderRole(
-+      toInboxZeroMessage(message),
-+      await this.getThunderbirdFolders(),
-+    );
++    return message;
 +  }
 +
 +  async getMessagesWithPagination(
