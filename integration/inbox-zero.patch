@@ -1,4 +1,5 @@
 diff --git a/apps/web/.env.example b/apps/web/.env.example
+index 8c191efb0..6771a3da5 100644
 --- a/apps/web/.env.example
 +++ b/apps/web/.env.example
 @@ -1,3 +1,8 @@
@@ -10,735 +11,9 @@ diff --git a/apps/web/.env.example b/apps/web/.env.example
  NEXT_PUBLIC_BASE_URL=http://localhost:3000
  
  DATABASE_URL="postgresql://postgres:password@localhost:5432/inboxzero?schema=public"
-diff --git a/apps/web/app/(app)/[emailAccountId]/mail/ListToolbar.tsx b/apps/web/app/(app)/[emailAccountId]/mail/ListToolbar.tsx
-index 122527a..9bda46b 100644
---- a/apps/web/app/(app)/[emailAccountId]/mail/ListToolbar.tsx
-+++ b/apps/web/app/(app)/[emailAccountId]/mail/ListToolbar.tsx
-@@ -13,6 +13,7 @@ import {
-   ArchiveRestoreIcon,
-   ChevronDownIcon,
-   ColumnsIcon,
-+  FolderInputIcon,
-   MailIcon,
-   MailOpenIcon,
-   RowsIcon,
-@@ -79,6 +80,7 @@ export type ListToolbarProps = {
-   onMarkUnreadSelected: () => void;
-   /** Omitted when the current view can't label (combined inboxes). */
-   onLabelSelected?: () => void;
-+  onMoveSelected?: () => void;
-   onClearSelection: () => void;
- };
- 
-@@ -107,6 +109,7 @@ export const ListToolbar = memo(function ListToolbar({
-   onMarkReadSelected,
-   onMarkUnreadSelected,
-   onLabelSelected,
-+  onMoveSelected,
-   onClearSelection,
- }: ListToolbarProps) {
-   const LayoutIcon = layout === "split" ? ColumnsIcon : RowsIcon;
-@@ -183,6 +186,19 @@ export const ListToolbar = memo(function ListToolbar({
-             </button>
-           </Tooltip>
- 
-+          {onMoveSelected ? (
-+            <Tooltip content="Move to folder">
-+              <button
-+                type="button"
-+                onClick={onMoveSelected}
-+                aria-label="Move to folder"
-+                className={cn(toolbarButton, "w-8 justify-center px-0")}
-+              >
-+                <FolderInputIcon className="size-3.5" />
-+              </button>
-+            </Tooltip>
-+          ) : null}
-+
-           {onLabelSelected ? (
-             <Tooltip shortcuts={["label"]}>
-               <button
-diff --git a/apps/web/app/(app)/[emailAccountId]/mail/MailShell.tsx b/apps/web/app/(app)/[emailAccountId]/mail/MailShell.tsx
-index 8a96fc8..dcc2950 100644
---- a/apps/web/app/(app)/[emailAccountId]/mail/MailShell.tsx
-+++ b/apps/web/app/(app)/[emailAccountId]/mail/MailShell.tsx
-@@ -1,5 +1,7 @@
- "use client";
- 
-+import { FolderPickerDialog } from "@/app/(app)/[emailAccountId]/mail/FolderPickerDialog";
-+
- import type { ListThread } from "./types";
- 
- import { MailPanelErrorBoundary } from "@/app/(app)/[emailAccountId]/mail/MailPanelErrorBoundary";
-@@ -124,6 +126,7 @@ export function MailShell() {
-   const { data: accountsData } = useAccounts();
-   const isGoogle = isGoogleProvider(provider);
-   const isOutlook = isMicrosoftProvider(provider);
-+  const hasFolders = isOutlook || provider === "thunderbird";
-   const { userLabels } = useEmailLabels();
-   const { userLabels: allLabels, mutate: mutateLabels } = useLabels();
-   const { folders } = useFolders(provider);
-@@ -764,6 +767,7 @@ export function MailShell() {
-   );
- 
-   useEffect(() => {
-+    if (provider === "thunderbird") return;
-     if (!openReaderThreadKey) {
-       readAttemptedForOpenThread.current = null;
-       return;
-@@ -786,6 +790,7 @@ export function MailShell() {
-     readAttemptedForOpenThread.current = openThreadKey;
-     markRead([openThreadKey]);
-   }, [
-+    provider,
-     isOpenThreadUnread,
-     markRead,
-     openMessages.length,
-@@ -852,13 +857,19 @@ export function MailShell() {
-     currentLabelTargets.every(
-       (target) => target.emailAccountId === labelAccountId,
-     );
-+  const canMove =
-+    canLabel ||
-+    (currentLabelTargets.length > 0 &&
-+      labelAccount?.account.provider === "thunderbird" &&
-+      currentLabelTargets.every(
-+        (target) => target.emailAccountId === labelAccountId,
-+      ));
-   const openLabelPicker = useStableCallback(() => {
-     if (canLabel)
-       setLabelPicker({ mode: "label", targets: currentLabelTargets });
-   });
-   const openMovePicker = useStableCallback(() => {
--    if (canLabel)
--      setLabelPicker({ mode: "move", targets: currentLabelTargets });
-+    if (canMove) setLabelPicker({ mode: "move", targets: currentLabelTargets });
-   });
-   const singleActionTarget =
-     actionTargets.length === 1 ? actionTargets.at(0) : undefined;
-@@ -911,7 +922,7 @@ export function MailShell() {
-         markRead: markReadTargets,
-         markSpam: markSpamTargets,
-         markUnread: markUnreadTargets,
--        move: canLabel ? openMovePicker : undefined,
-+        move: canMove ? openMovePicker : undefined,
-         openExternal:
-           isReaderTarget && openExternalUrl
-             ? () =>
-@@ -944,6 +955,7 @@ export function MailShell() {
-       targetsArchived,
-       actionTargets,
-       canLabel,
-+      canMove,
-       isReaderTarget,
-       allStarred,
-       starTargets,
-@@ -1087,7 +1099,7 @@ export function MailShell() {
-       extendSelectionDown: () => extendSelection(1),
-       extendSelectionUp: () => extendSelection(-1),
-       label: canLabel ? openLabelPicker : undefined,
--      move: canLabel ? openMovePicker : undefined,
-+      move: canMove ? openMovePicker : undefined,
-       archive: targetsArchived ? undefined : archiveTargets,
-       star: starTargets,
-       markSpam: markSpamTargets,
-@@ -1257,10 +1269,10 @@ export function MailShell() {
-   );
-   const searchFolders = useMemo(
-     () =>
--      isOutlook && !isAllAccounts
-+      hasFolders && !isAllAccounts
-         ? getMailSearchFolders(folders)
-         : NO_SEARCH_OPTIONS,
--    [folders, isAllAccounts, isOutlook],
-+    [folders, isAllAccounts, hasFolders],
-   );
-   const showSplitTabs = !isScoped && !searchQuery;
-   const threadCount = threads.length;
-@@ -1298,10 +1310,15 @@ export function MailShell() {
-       </EmailAccountScopeProvider>
-     ) : null;
- 
-+  const PickerDialog =
-+    pickerAccount?.account.provider === "thunderbird" &&
-+    labelPicker?.mode === "move"
-+      ? FolderPickerDialog
-+      : LabelPickerDialog;
-   const labelPickerDialog =
-     labelPicker && pickerAccount ? (
-       <EmailAccountScopeProvider emailAccount={pickerAccount}>
--        <LabelPickerDialog
-+        <PickerDialog
-           threadIds={labelPicker.targets.map((target) => target.threadId)}
-           mode={labelPicker.mode}
-           onClose={() => setLabelPicker(null)}
-@@ -1378,7 +1395,7 @@ export function MailShell() {
-                 searchFolders={searchFolders}
-                 searchVariant={getMailSearchVariant({
-                   isAllAccounts,
--                  isOutlook,
-+                  isOutlook: hasFolders,
-                 })}
-                 onToggleLayout={toggleLayout}
-                 expandedPreview={expandedPreview}
-@@ -1398,6 +1415,11 @@ export function MailShell() {
-                 onMarkReadSelected={markReadTargets}
-                 onMarkUnreadSelected={markUnreadTargets}
-                 onLabelSelected={canLabel ? openLabelPicker : undefined}
-+                onMoveSelected={
-+                  labelAccount?.account.provider === "thunderbird" && canMove
-+                    ? openMovePicker
-+                    : undefined
-+                }
-                 onClearSelection={selection.clear}
-               />
-               {showSplitTabs && (
-@@ -1502,7 +1524,7 @@ export function MailShell() {
-                 onMarkSpam={markSpamTargets}
-                 onDelete={trashTargets}
-                 onLabel={canLabel ? openLabelPicker : undefined}
--                onMove={canLabel ? openMovePicker : undefined}
-+                onMove={canMove ? openMovePicker : undefined}
-                 isMenuOpen={isMenuOpen}
-                 onMenuOpenChange={setIsMenuOpen}
-                 enableMessageNavigation={!sidePanelThreadId}
-diff --git a/apps/web/app/(app)/[emailAccountId]/mail/MailShellSidebar.tsx b/apps/web/app/(app)/[emailAccountId]/mail/MailShellSidebar.tsx
-index 6e93172..452b954 100644
---- a/apps/web/app/(app)/[emailAccountId]/mail/MailShellSidebar.tsx
-+++ b/apps/web/app/(app)/[emailAccountId]/mail/MailShellSidebar.tsx
-@@ -81,6 +81,7 @@ export const MailShellSidebar = memo(function MailShellSidebar({
-   const { emailAccountId, provider } = useAccount();
-   const isGoogle = isGoogleProvider(provider);
-   const isOutlook = isMicrosoftProvider(provider);
-+  const hasFolders = isOutlook || provider === "thunderbird";
-   const terminology = getEmailTerminology(provider);
-   const { userLabels: allLabels, mutate: mutateLabels } = useLabels();
-   const { folders, mutate: mutateFolders } = useFolders(provider);
-@@ -201,7 +202,7 @@ export const MailShellSidebar = memo(function MailShellSidebar({
-           activeFolderId={activeFolderId}
-           hrefFor={hrefFor}
-           labels={isAllAccounts ? NO_LABELS : allLabels}
--          folders={isAllAccounts || !isOutlook ? NO_FOLDERS : folders}
-+          folders={isAllAccounts || !hasFolders ? NO_FOLDERS : folders}
-           countsById={isAllAccounts ? NO_COUNTS : countsById}
-           categories={
-             isAllAccounts
-diff --git a/apps/web/app/(landing)/login/page.tsx b/apps/web/app/(landing)/login/page.tsx
-index 40d2c82..9a718c5 100644
---- a/apps/web/app/(landing)/login/page.tsx
-+++ b/apps/web/app/(landing)/login/page.tsx
-@@ -3,6 +3,8 @@ import type { Metadata } from "next";
- import { redirect } from "next/navigation";
- import Link from "next/link";
- import { LoginForm } from "@/app/(landing)/login/LoginForm";
-+import { ThunderbirdLoginForm } from "@/app/(landing)/login/ThunderbirdLoginForm";
-+import { isLocalThunderbirdEnabled } from "@/utils/email/thunderbird-config";
- import {
-   getEmailAlreadyLinkedDescription,
-   getRequiresReconsentDescription,
-@@ -54,6 +56,7 @@ export default async function AuthenticationPage(props: {
-           </p>
-         </div>
-         <div className="mt-4">
-+          {isLocalThunderbirdEnabled() && <ThunderbirdLoginForm />}
-           <Suspense>
-             <LoginForm
-               enabledProviders={enabledProviders}
-diff --git a/apps/web/app/api/user/folders/route.ts b/apps/web/app/api/user/folders/route.ts
-index f5e4463..a51acd5 100644
---- a/apps/web/app/api/user/folders/route.ts
-+++ b/apps/web/app/api/user/folders/route.ts
-@@ -8,9 +8,12 @@ export type GetFoldersResponse = Awaited<ReturnType<typeof getFolders>>;
- export const GET = withEmailProvider("user/folders", async (request) => {
-   const emailProvider = request.emailProvider;
- 
--  if (!isMicrosoftProvider(emailProvider.name)) {
-+  if (
-+    !isMicrosoftProvider(emailProvider.name) &&
-+    emailProvider.name !== "thunderbird"
-+  ) {
-     return NextResponse.json(
--      { error: "Only Microsoft email providers are supported" },
-+      { error: "This provider does not expose mailbox folders" },
-       { status: 400 },
-     );
-   }
-diff --git a/apps/web/app/layout.tsx b/apps/web/app/layout.tsx
-index ef3a1af..8897f45 100644
---- a/apps/web/app/layout.tsx
-+++ b/apps/web/app/layout.tsx
-@@ -184,10 +184,10 @@ export default async function RootLayout({
-             <Toaster />
-           </GlobalProviders>
-         </PostHogProvider>
--        <Analytics />
-+        {!env.LOCAL_THUNDERBIRD_ENABLED && <Analytics />}
-         <AxiomWebVitals />
-         <UTM />
--        <SpeedInsights />
-+        {!env.LOCAL_THUNDERBIRD_ENABLED && <SpeedInsights />}
-         {env.NEXT_PUBLIC_DUB_REFER_DOMAIN && (
-           <DubAnalytics
-             apiHost="/_proxy/dub"
-diff --git a/apps/web/env.ts b/apps/web/env.ts
-index 6c89f04..2c66033 100644
---- a/apps/web/env.ts
-+++ b/apps/web/env.ts
-@@ -63,6 +63,9 @@ const parsedEnv = createEnv({
-     ),
- 
-     AUTH_SECRET: z.string().optional(),
-+    LOCAL_THUNDERBIRD_ENABLED: booleanString.default(false),
-+    THUNDERBIRD_BRIDGE_URL: z.string().url().optional(),
-+    THUNDERBIRD_BRIDGE_TOKEN: z.string().min(32).optional(),
-     SCIM_CREDENTIAL_HASH_SECRET: z.string().min(32).optional(),
-     NEXTAUTH_SECRET: z.string().optional(),
-     AUTH_ALLOWED_EMAILS: z
-diff --git a/apps/web/hooks/useFolders.ts b/apps/web/hooks/useFolders.ts
-index 952d3e6..153526a 100644
---- a/apps/web/hooks/useFolders.ts
-+++ b/apps/web/hooks/useFolders.ts
-@@ -3,7 +3,7 @@ import type { GetFoldersResponse } from "@/app/api/user/folders/route";
- import { isMicrosoftProvider } from "@/utils/email/provider-types";
- 
- export function useFolders(provider: string) {
--  const enabled = isMicrosoftProvider(provider);
-+  const enabled = isMicrosoftProvider(provider) || provider === "thunderbird";
-   const { data, error, isLoading, mutate } = useSWR<GetFoldersResponse>(
-     enabled ? "/api/user/folders" : null,
-   );
-diff --git a/apps/web/utils/assess.ts b/apps/web/utils/assess.ts
-index 57a1889..95c314a 100644
---- a/apps/web/utils/assess.ts
-+++ b/apps/web/utils/assess.ts
-@@ -9,6 +9,7 @@ import { GmailLabel } from "@/utils/gmail/label";
- const DEFAULT_LABEL_COUNT: Record<EmailProvider["name"], number> = {
-   google: 13,
-   microsoft: 8,
-+  thunderbird: 0,
- };
- 
- export async function assessUser({
-diff --git a/apps/web/utils/auth.ts b/apps/web/utils/auth.ts
-index 96d9a95..9390eaa 100644
---- a/apps/web/utils/auth.ts
-+++ b/apps/web/utils/auth.ts
-@@ -50,6 +50,7 @@ import { mobileAuthProviderCompletion } from "@/utils/mobile-auth/provider-compl
- import { safeExpo } from "@/utils/mobile-auth/expo";
- import { clearAccountDisconnectedErrorIfResolved } from "@/utils/error-messages";
- import { getEnabledLoginProviders } from "@/utils/oauth/login-providers";
-+import { isLocalThunderbirdEnabled } from "@/utils/email/thunderbird-config";
- import { getAppleClientSecret } from "@/utils/auth/apple-client-secret";
- import { reconcileMicrosoftAccountSubject } from "@/utils/auth/microsoft-account-subject";
- import { getScimOptions, assertScimUserActive } from "@/utils/auth/scim";
-@@ -255,7 +256,8 @@ export const betterAuthConfig = betterAuth({
-   ],
-   secret: env.AUTH_SECRET || env.NEXTAUTH_SECRET,
-   emailAndPassword: {
--    enabled: false,
-+    enabled: isLocalThunderbirdEnabled(),
-+    disableSignUp: true,
-   },
-   database: prismaAdapter(prisma, {
-     provider: "postgresql",
-diff --git a/apps/web/utils/email/provider.ts b/apps/web/utils/email/provider.ts
-index 7b58d8e..a6e31f2 100644
---- a/apps/web/utils/email/provider.ts
-+++ b/apps/web/utils/email/provider.ts
-@@ -10,6 +10,10 @@ import { toRateLimitProvider } from "@/utils/email/rate-limit-mode-error";
- import { recordEmailAccountProviderIssue } from "@/utils/email/provider-health";
- import type { Logger } from "@/utils/logger";
- import { flushLoggerSafely } from "@/utils/logger-flush";
-+import { env } from "@/env";
-+import prisma from "@/utils/prisma";
-+import { ThunderbirdProvider } from "@/utils/email/thunderbird-provider";
-+import { isLocalThunderbirdEnabled } from "@/utils/email/thunderbird-config";
- 
- export async function createEmailProvider({
-   emailAccountId,
-@@ -20,6 +24,36 @@ export async function createEmailProvider({
-   provider: string;
-   logger: Logger;
- }): Promise<EmailProvider> {
-+  if (provider === "thunderbird") {
-+    if (!isLocalThunderbirdEnabled())
-+      throw new Error("Local Thunderbird is disabled");
-+    const mailbox = await prisma.emailAccount.findUniqueOrThrow({
-+      where: { id: emailAccountId },
-+      select: {
-+        email: true,
-+        account: { select: { provider: true, providerAccountId: true } },
-+      },
-+    });
-+    if (mailbox.account.provider !== "thunderbird")
-+      throw new Error("Mailbox provider mismatch");
-+    const reader = new ThunderbirdProvider({
-+      baseUrl: env.THUNDERBIRD_BRIDGE_URL!,
-+      token: env.THUNDERBIRD_BRIDGE_TOKEN!,
-+      accountId: mailbox.account.providerAccountId,
-+    });
-+    const account = (await reader.getAccounts()).find(
-+      (account) => account.id === mailbox.account.providerAccountId,
-+    );
-+    if (
-+      !account ||
-+      account.email.toLowerCase() !== mailbox.email.toLowerCase()
-+    ) {
-+      throw new Error(
-+        "Thunderbird account identity changed. Reconnect this mailbox.",
-+      );
-+    }
-+    return reader;
-+  }
-   const rateLimitProvider = toRateLimitProvider(provider);
-   if (!rateLimitProvider) throw new Error(`Unsupported provider: ${provider}`);
- 
-diff --git a/apps/web/utils/email/rate-limit-mode-error.ts b/apps/web/utils/email/rate-limit-mode-error.ts
-index 23177fb..ff6f0c7 100644
---- a/apps/web/utils/email/rate-limit-mode-error.ts
-+++ b/apps/web/utils/email/rate-limit-mode-error.ts
-@@ -1,6 +1,6 @@
- import type { EmailProvider } from "@/utils/email/types";
- 
--export type EmailProviderRateLimitProvider = EmailProvider["name"];
-+export type EmailProviderRateLimitProvider = Exclude<EmailProvider["name"], "thunderbird">;
- 
- type EmailProviderRateLimitMetadata = {
-   apiErrorType: string;
-diff --git a/apps/web/utils/email/types.ts b/apps/web/utils/email/types.ts
-index c217d2e..1fbdb2d 100644
---- a/apps/web/utils/email/types.ts
-+++ b/apps/web/utils/email/types.ts
-@@ -353,7 +353,7 @@ export interface EmailProvider {
-     ownerEmail: string,
-     folderName: string,
-   ): Promise<void>;
--  readonly name: "google" | "microsoft";
-+  readonly name: "google" | "microsoft" | "thunderbird";
-   removeThreadLabel(threadId: string, labelId: string): Promise<void>;
-   removeThreadLabels(threadId: string, labelIds: string[]): Promise<void>;
-   renameFolder(folderId: string, name: string): Promise<void>;
-diff --git a/apps/web/utils/mail-api/operations.test.ts b/apps/web/utils/mail-api/operations.test.ts
-index 1c92688..2cbd86c 100644
---- a/apps/web/utils/mail-api/operations.test.ts
-+++ b/apps/web/utils/mail-api/operations.test.ts
-@@ -46,6 +46,50 @@ describe("createEmailProviderOperationExecutor", () => {
-   beforeEach(() => {
-     vi.clearAllMocks();
-   });
-+  it("allows Thunderbird folder moves but rejects other mutations", async () => {
-+    const moveThreadToFolder = vi.fn();
-+    const provider = {
-+      name: "thunderbird",
-+      moveThreadToFolder,
-+      getMessage: vi.fn(async () => ({
-+        id: "m1",
-+        threadId: "m1",
-+        headers: { to: "owner@example.invalid" },
-+      })),
-+      getMessagesBatch: vi.fn(async () => []),
-+      archiveMessages: vi.fn(),
-+    } as unknown as EmailProvider;
-+    const executor = createEmailProviderOperationExecutor({
-+      provider,
-+      accountId: "acc-1",
-+    });
-+    const base = metadataOperation([{ accountId: "acc-1", messageId: "m1" }]);
-+    const result = await executor.execute({
-+      operation: {
-+        ...base,
-+        intent: {
-+          kind: "metadata",
-+          targets: [{ accountId: "acc-1", messageId: "m1" }],
-+          change: { kind: "move", folderId: "destination" },
-+        },
-+      },
-+      attemptId: "move-test",
-+      signal: new AbortController().signal,
-+    });
-+    expect(result.status).toBe("confirmed");
-+    expect(moveThreadToFolder).toHaveBeenCalledWith(
-+      "m1",
-+      "owner@example.invalid",
-+      "destination",
-+    );
-+    const rejected = await executor.execute({
-+      operation: base,
-+      attemptId: "archive-test",
-+      signal: new AbortController().signal,
-+    });
-+    expect(rejected.status).toBe("rejected");
-+    expect(provider.archiveMessages).not.toHaveBeenCalled();
-+  });
-   it("archives every target with one provider call and one batched read", async () => {
-     const archiveMessages = vi.fn();
-     const getMessage = vi.fn();
-diff --git a/apps/web/utils/mail-api/operations.ts b/apps/web/utils/mail-api/operations.ts
-index 05761fa..f59a5af 100644
---- a/apps/web/utils/mail-api/operations.ts
-+++ b/apps/web/utils/mail-api/operations.ts
-@@ -65,6 +65,14 @@ export function createEmailProviderOperationExecutor(input: {
-   const { provider, accountId } = input;
-   return {
-     async execute({ operation }) {
-+      if (
-+        provider.name === "thunderbird" &&
-+        !(
-+          operation.intent.kind === "metadata" &&
-+          operation.intent.change.kind === "move"
-+        )
-+      )
-+        return { status: "rejected", code: "unsupported", targets: [] };
-       if (operation.intent.kind === "send") {
-         return executeSend(provider, accountId, operation);
-       }
-diff --git a/apps/web/utils/mail-api/source.ts b/apps/web/utils/mail-api/source.ts
-index 77db1ef..c78bf00 100644
---- a/apps/web/utils/mail-api/source.ts
-+++ b/apps/web/utils/mail-api/source.ts
-@@ -63,7 +63,8 @@ export function createEmailProviderMailboxSource(input: {
-             provider.localMailSyncStrategy === "folder-delta"
-               ? "folder_delta"
-               : "account_history",
--          supportedChanges: [...SUPPORTED_CHANGES],
-+          supportedChanges:
-+            provider.name === "thunderbird" ? [] : [...SUPPORTED_CHANGES],
-           maxPageSize,
-           maxHydrationBatch: 20,
-         },
-@@ -141,7 +142,8 @@ export function createEmailProviderMailboxSource(input: {
-               bootstrapId: "mailbox",
-               scopeId: token.scopeId ?? "primary",
-               changes,
--              requiredHydration,
-+              requiredHydration:
-+                provider.name === "thunderbird" ? [] : requiredHydration,
-               bodies,
-               nextPage: JSON.stringify({
-                 afterMs: token.afterMs ?? 0,
-@@ -160,7 +162,8 @@ export function createEmailProviderMailboxSource(input: {
-             bootstrapId: "mailbox",
-             scopeId: token.scopeId ?? "primary",
-             changes,
--            requiredHydration,
-+            requiredHydration:
-+              provider.name === "thunderbird" ? [] : requiredHydration,
-             bodies,
-             nextPage: null,
-             catchUpFrom: await finalCatchUpFrom({
-@@ -219,7 +222,9 @@ export function createEmailProviderMailboxSource(input: {
-                 scopeId: position.streamId,
-               })),
-             ],
--            ...parsedMessageBodies(accountId, page.upsertedMessages),
-+            ...(provider.name === "thunderbird"
-+              ? { requiredHydration: [], bodies: [] }
-+              : parsedMessageBodies(accountId, page.upsertedMessages)),
-             roundComplete: !page.hasMore,
-           },
-         };
-diff --git a/apps/web/utils/mail-engine/MailEngineHost.tsx b/apps/web/utils/mail-engine/MailEngineHost.tsx
-index b062ed3..ac6feb8 100644
---- a/apps/web/utils/mail-engine/MailEngineHost.tsx
-+++ b/apps/web/utils/mail-engine/MailEngineHost.tsx
-@@ -143,7 +143,12 @@ function MailEngineRuntimeInner({ children }: { children: ReactNode }) {
-       setUnavailable(true);
-       return;
-     }
--    const mailProvider = isMicrosoftProvider(provider) ? "microsoft" : "google";
-+    const mailProvider =
-+      provider === "thunderbird"
-+        ? "thunderbird"
-+        : isMicrosoftProvider(provider)
-+          ? "microsoft"
-+          : "google";
-     const abort = new AbortController();
-     let published: MailClient | undefined;
- 
-diff --git a/apps/web/utils/mail-engine/create-browser-engine.ts b/apps/web/utils/mail-engine/create-browser-engine.ts
-index 1f4e9d3..8cb1d99 100644
---- a/apps/web/utils/mail-engine/create-browser-engine.ts
-+++ b/apps/web/utils/mail-engine/create-browser-engine.ts
-@@ -31,7 +31,7 @@ export { browserMailEngineCapabilities };
- export type BrowserMailEngine = MailEngine & {
-   ensureAccount(input: {
-     accountId: string;
--    provider: "google" | "microsoft";
-+    provider: "google" | "microsoft" | "thunderbird";
-     generation?: string;
-   }): Promise<void>;
- };
-@@ -69,7 +69,11 @@ async function createInTabEngine(
-     await store.ensureAccount({
-       accountId: account.accountId,
-       provider: account.provider,
--      generation: account.generation ?? account.accountId,
-+      generation:
-+        account.generation ??
-+        (account.provider === "thunderbird"
-+          ? `${account.accountId}:thunderbird-rfc-v1`
-+          : account.accountId),
-     });
-   };
-   await ensureAccount(input);
-diff --git a/apps/web/utils/mail-engine/desktop-ipc.ts b/apps/web/utils/mail-engine/desktop-ipc.ts
-index eb25c6e..eb04897 100644
---- a/apps/web/utils/mail-engine/desktop-ipc.ts
-+++ b/apps/web/utils/mail-engine/desktop-ipc.ts
-@@ -16,7 +16,7 @@ export function hasDesktopMailEngineIpc() {
- }
- 
- export function createDesktopIpcMailClient(input?: {
--  provider?: "google" | "microsoft";
-+  provider?: "google" | "microsoft" | "thunderbird";
- }) {
-   const desktop = getInboxZeroDesktopApp();
-   const invoke = desktop?.mailEngine;
-diff --git a/apps/web/utils/mail-engine/engine-worker.ts b/apps/web/utils/mail-engine/engine-worker.ts
-index 2c742a3..77ae4d1 100644
---- a/apps/web/utils/mail-engine/engine-worker.ts
-+++ b/apps/web/utils/mail-engine/engine-worker.ts
-@@ -47,7 +47,11 @@ async function createWorkerEngine(
-     await store.ensureAccount({
-       accountId: account.accountId,
-       provider: account.provider,
--      generation: account.generation ?? account.accountId,
-+      generation:
-+        account.generation ??
-+        (account.provider === "thunderbird"
-+          ? `${account.accountId}:thunderbird-rfc-v1`
-+          : account.accountId),
-     });
-   };
-   await ensureAccount(input);
-diff --git a/apps/web/utils/mail-engine/tab-channel.ts b/apps/web/utils/mail-engine/tab-channel.ts
-index f31b7e1..f99efab 100644
---- a/apps/web/utils/mail-engine/tab-channel.ts
-+++ b/apps/web/utils/mail-engine/tab-channel.ts
-@@ -18,7 +18,7 @@ export type TabMailMessage =
-   | {
-       type: "hello";
-       accountId: string;
--      provider?: "google" | "microsoft";
-+      provider?: "google" | "microsoft" | "thunderbird";
-     }
-   | { type: "ready" }
-   | { type: "owner"; accountId: string }
-@@ -66,7 +66,7 @@ export function bindTabMailOwner(input: {
-   bus: TabMailBus;
-   ensureAccount?: (input: {
-     accountId: string;
--    provider: "google" | "microsoft";
-+    provider: "google" | "microsoft" | "thunderbird";
-   }) => Promise<void>;
- }): () => void {
-   const handles = new Map<
-@@ -164,7 +164,7 @@ export function disposeTabFollowerClient(client: MailClient) {
- 
- export function createTabFollowerClient(input: {
-   accountId: string;
--  provider?: "google" | "microsoft";
-+  provider?: "google" | "microsoft" | "thunderbird";
-   bus: TabMailBus;
- }): MailClient {
-   const pending = new Map<
-@@ -390,7 +390,7 @@ function announceOwner(
-     bus: TabMailBus;
-     ensureAccount?: (account: {
-       accountId: string;
--      provider: "google" | "microsoft";
-+      provider: "google" | "microsoft" | "thunderbird";
-     }) => Promise<void>;
-   },
-   message: Extract<TabMailMessage, { type: "hello" }>,
-diff --git a/apps/web/utils/mail-engine/worker-protocol.ts b/apps/web/utils/mail-engine/worker-protocol.ts
-index 0a29e0b..489ff19 100644
---- a/apps/web/utils/mail-engine/worker-protocol.ts
-+++ b/apps/web/utils/mail-engine/worker-protocol.ts
-@@ -3,7 +3,7 @@ import type { QuerySnapshot } from "@inboxzero/mail-core/queries";
- 
- export type BrowserEngineStart = {
-   accountId: string;
--  provider: "google" | "microsoft";
-+  provider: "google" | "microsoft" | "thunderbird";
-   generation?: string;
-   persist?: boolean;
-   maxPendingOperations?: number;
-diff --git a/packages/mail-core/src/identities.ts b/packages/mail-core/src/identities.ts
-index a66c2d7..16fa0c3 100644
---- a/packages/mail-core/src/identities.ts
-+++ b/packages/mail-core/src/identities.ts
-@@ -13,7 +13,7 @@ export const blobIdSchema = z
-   .max(128)
-   .regex(/^[A-Za-z0-9][A-Za-z0-9._-]*$/);
- 
--export const providerSchema = z.enum(["google", "microsoft"]);
-+export const providerSchema = z.enum(["google", "microsoft", "thunderbird"]);
- export type Provider = z.infer<typeof providerSchema>;
- 
- export const messageKeySchema = z.object({
-diff --git a/packages/mail-sqlite/src/migrations.ts b/packages/mail-sqlite/src/migrations.ts
-index d730691..baff311 100644
---- a/packages/mail-sqlite/src/migrations.ts
-+++ b/packages/mail-sqlite/src/migrations.ts
-@@ -21,7 +21,7 @@ CREATE TABLE IF NOT EXISTS profile_state (
- 
- CREATE TABLE IF NOT EXISTS accounts (
-   account_id TEXT PRIMARY KEY,
--  provider TEXT NOT NULL CHECK (provider IN ('google', 'microsoft')),
-+  provider TEXT NOT NULL CHECK (provider IN ('google', 'microsoft', 'thunderbird')),
-   generation TEXT NOT NULL,
-   assistant_cursor TEXT
- );
-diff --git a/packages/mail-sqlite/src/store.ts b/packages/mail-sqlite/src/store.ts
-index 7824d1c..3c456cc 100644
---- a/packages/mail-sqlite/src/store.ts
-+++ b/packages/mail-sqlite/src/store.ts
-@@ -2286,7 +2286,7 @@ async function inspectState(
-     revision,
-     accounts: accounts.map((row) => ({
-       accountId: String(row.account_id),
--      provider: String(row.provider) as "google" | "microsoft",
-+      provider: String(row.provider) as "google" | "microsoft" | "thunderbird",
-       generation: String(row.generation),
-       assistantCursor:
-         row.assistant_cursor == null ? null : String(row.assistant_cursor),
-@@ -2373,7 +2373,7 @@ async function resetAccountForGeneration(
-   tx: SqlTransaction,
-   input: {
-     accountId: string;
--    provider: "google" | "microsoft";
-+    provider: "google" | "microsoft" | "thunderbird";
-     generation: string;
-   },
- ) {
-diff --git a/turbo.json b/turbo.json
-index b5f612f..86afd9e 100644
---- a/turbo.json
-+++ b/turbo.json
-@@ -16,6 +16,9 @@
-         "PREVIEW_DATABASE_URL_UNPOOLED",
-         "NEXTAUTH_SECRET",
-         "AUTH_SECRET",
-+        "LOCAL_THUNDERBIRD_ENABLED",
-+        "THUNDERBIRD_BRIDGE_URL",
-+        "THUNDERBIRD_BRIDGE_TOKEN",
-         "SCIM_CREDENTIAL_HASH_SECRET",
-         "AUTH_ALLOWED_EMAILS",
-         "AUTH_ALLOWED_EMAIL_DOMAINS",
-@@ -315,6 +318,9 @@
-         "MCP_ALLOW_PRIVATE_IPS",
-         "DATABASE_URL",
-         "AUTH_SECRET",
-+        "LOCAL_THUNDERBIRD_ENABLED",
-+        "THUNDERBIRD_BRIDGE_URL",
-+        "THUNDERBIRD_BRIDGE_TOKEN",
-         "SCIM_CREDENTIAL_HASH_SECRET",
-         "AUTH_ALLOWED_EMAILS",
-         "AUTH_ALLOWED_EMAIL_DOMAINS",
 diff --git a/apps/web/app/(app)/[emailAccountId]/mail/FolderPickerDialog.tsx b/apps/web/app/(app)/[emailAccountId]/mail/FolderPickerDialog.tsx
 new file mode 100644
-index 0000000..9aabc09
+index 000000000..9aabc09f7
 --- /dev/null
 +++ b/apps/web/app/(app)/[emailAccountId]/mail/FolderPickerDialog.tsx
 @@ -0,0 +1,113 @@
@@ -855,9 +130,222 @@ index 0000000..9aabc09
 +    </Dialog>
 +  );
 +}
+diff --git a/apps/web/app/(app)/[emailAccountId]/mail/ListToolbar.tsx b/apps/web/app/(app)/[emailAccountId]/mail/ListToolbar.tsx
+index 3a7b5d90e..5d2d44558 100644
+--- a/apps/web/app/(app)/[emailAccountId]/mail/ListToolbar.tsx
++++ b/apps/web/app/(app)/[emailAccountId]/mail/ListToolbar.tsx
+@@ -17,6 +17,7 @@ import {
+   ArchiveRestoreIcon,
+   ChevronDownIcon,
+   ColumnsIcon,
++  FolderInputIcon,
+   MailIcon,
+   MailOpenIcon,
+   RowsIcon,
+@@ -88,6 +89,7 @@ export type ListToolbarProps = {
+   onStarSelected: () => void;
+   /** Omitted when the current view can't label (combined inboxes). */
+   onLabelSelected?: () => void;
++  onMoveSelected?: () => void;
+   onClearSelection: () => void;
+ };
+ 
+@@ -118,6 +120,7 @@ export const ListToolbar = memo(function ListToolbar({
+   isStarredSelected,
+   onStarSelected,
+   onLabelSelected,
++  onMoveSelected,
+   onClearSelection,
+ }: ListToolbarProps) {
+   const LayoutIcon = layout === "split" ? ColumnsIcon : RowsIcon;
+@@ -209,6 +212,19 @@ export const ListToolbar = memo(function ListToolbar({
+             </button>
+           </Tooltip>
+ 
++          {onMoveSelected ? (
++            <Tooltip content="Move to folder">
++              <button
++                type="button"
++                onClick={onMoveSelected}
++                aria-label="Move to folder"
++                className={cn(toolbarButton, "w-8 justify-center px-0")}
++              >
++                <FolderInputIcon className="size-3.5" />
++              </button>
++            </Tooltip>
++          ) : null}
++
+           {onLabelSelected ? (
+             <Tooltip shortcuts={["label"]}>
+               <button
+diff --git a/apps/web/app/(app)/[emailAccountId]/mail/MailShell.tsx b/apps/web/app/(app)/[emailAccountId]/mail/MailShell.tsx
+index 1f6d1f804..5d1a2fed7 100644
+--- a/apps/web/app/(app)/[emailAccountId]/mail/MailShell.tsx
++++ b/apps/web/app/(app)/[emailAccountId]/mail/MailShell.tsx
+@@ -1,5 +1,7 @@
+ "use client";
+ 
++import { FolderPickerDialog } from "@/app/(app)/[emailAccountId]/mail/FolderPickerDialog";
++
+ import type { ListThread } from "./types";
+ 
+ import { MailPanelErrorBoundary } from "@/app/(app)/[emailAccountId]/mail/MailPanelErrorBoundary";
+@@ -129,6 +131,7 @@ export function MailShell() {
+   const { data: accountsData } = useAccounts();
+   const isGoogle = isGoogleProvider(provider);
+   const isOutlook = isMicrosoftProvider(provider);
++  const hasFolders = isOutlook || provider === "thunderbird";
+   const { userLabels } = useEmailLabels();
+   const { userLabels: allLabels, mutate: mutateLabels } = useLabels();
+   const { folders } = useFolders(provider);
+@@ -812,6 +815,7 @@ export function MailShell() {
+   );
+ 
+   useEffect(() => {
++    if (provider === "thunderbird") return;
+     if (!openReaderThreadKey) {
+       readAttemptedForOpenThread.current = null;
+       return;
+@@ -834,6 +838,7 @@ export function MailShell() {
+     readAttemptedForOpenThread.current = openThreadKey;
+     markRead([openThreadKey]);
+   }, [
++    provider,
+     isOpenThreadUnread,
+     markRead,
+     openMessages.length,
+@@ -903,13 +908,19 @@ export function MailShell() {
+     currentLabelTargets.every(
+       (target) => target.emailAccountId === labelAccountId,
+     );
++  const canMove =
++    canLabel ||
++    (currentLabelTargets.length > 0 &&
++      labelAccount?.account.provider === "thunderbird" &&
++      currentLabelTargets.every(
++        (target) => target.emailAccountId === labelAccountId,
++      ));
+   const openLabelPicker = useStableCallback(() => {
+     if (canLabel)
+       setLabelPicker({ mode: "label", targets: currentLabelTargets });
+   });
+   const openMovePicker = useStableCallback(() => {
+-    if (canLabel)
+-      setLabelPicker({ mode: "move", targets: currentLabelTargets });
++    if (canMove) setLabelPicker({ mode: "move", targets: currentLabelTargets });
+   });
+   const singleActionTarget =
+     actionTargets.length === 1 ? actionTargets.at(0) : undefined;
+@@ -962,7 +973,7 @@ export function MailShell() {
+         markRead: markReadTargets,
+         markSpam: markSpamTargets,
+         markUnread: markUnreadTargets,
+-        move: canLabel ? openMovePicker : undefined,
++        move: canMove ? openMovePicker : undefined,
+         openExternal:
+           isReaderTarget && openExternalUrl
+             ? () =>
+@@ -997,6 +1008,7 @@ export function MailShell() {
+       targetsArchived,
+       actionTargets,
+       canLabel,
++      canMove,
+       isReaderTarget,
+       allStarred,
+       starTargets,
+@@ -1143,7 +1155,7 @@ export function MailShell() {
+       extendSelectionDown: () => extendSelection(1),
+       extendSelectionUp: () => extendSelection(-1),
+       label: canLabel ? openLabelPicker : undefined,
+-      move: canLabel ? openMovePicker : undefined,
++      move: canMove ? openMovePicker : undefined,
+       archive: targetsArchived ? undefined : archiveTargets,
+       star: starTargets,
+       markSpam: markSpamTargets,
+@@ -1315,10 +1327,10 @@ export function MailShell() {
+   );
+   const searchFolders = useMemo(
+     () =>
+-      isOutlook && !isAllAccounts
++      hasFolders && !isAllAccounts
+         ? getMailSearchFolders(folders)
+         : NO_SEARCH_OPTIONS,
+-    [folders, isAllAccounts, isOutlook],
++    [folders, isAllAccounts, hasFolders],
+   );
+   const showSplitTabs = !isScoped && !searchQuery;
+   const threadCount = threads.length;
+@@ -1356,10 +1368,15 @@ export function MailShell() {
+       </EmailAccountScopeProvider>
+     ) : null;
+ 
++  const PickerDialog =
++    pickerAccount?.account.provider === "thunderbird" &&
++    labelPicker?.mode === "move"
++      ? FolderPickerDialog
++      : LabelPickerDialog;
+   const labelPickerDialog =
+     labelPicker && pickerAccount ? (
+       <EmailAccountScopeProvider emailAccount={pickerAccount}>
+-        <LabelPickerDialog
++        <PickerDialog
+           threadIds={labelPicker.targets.map((target) => target.threadId)}
+           mode={labelPicker.mode}
+           onClose={() => setLabelPicker(null)}
+@@ -1428,7 +1445,7 @@ export function MailShell() {
+                 searchFolders={searchFolders}
+                 searchVariant={getMailSearchVariant({
+                   isAllAccounts,
+-                  isOutlook,
++                  isOutlook: hasFolders,
+                 })}
+                 onToggleLayout={toggleLayout}
+                 expandedPreview={expandedPreview}
+@@ -1450,6 +1467,11 @@ export function MailShell() {
+                 isStarredSelected={allStarred}
+                 onStarSelected={starTargets}
+                 onLabelSelected={canLabel ? openLabelPicker : undefined}
++                onMoveSelected={
++                  labelAccount?.account.provider === "thunderbird" && canMove
++                    ? openMovePicker
++                    : undefined
++                }
+                 onClearSelection={selection.clear}
+               />
+               {showSplitTabs && (
+@@ -1554,7 +1576,7 @@ export function MailShell() {
+                 onMarkSpam={markSpamTargets}
+                 onDelete={trashTargets}
+                 onLabel={canLabel ? openLabelPicker : undefined}
+-                onMove={canLabel ? openMovePicker : undefined}
++                onMove={canMove ? openMovePicker : undefined}
+                 onTranslate={translateOpenThread}
+                 onComment={openTeamComments}
+                 isMenuOpen={isMenuOpen}
+diff --git a/apps/web/app/(app)/[emailAccountId]/mail/MailShellSidebar.tsx b/apps/web/app/(app)/[emailAccountId]/mail/MailShellSidebar.tsx
+index 7200a664d..070923669 100644
+--- a/apps/web/app/(app)/[emailAccountId]/mail/MailShellSidebar.tsx
++++ b/apps/web/app/(app)/[emailAccountId]/mail/MailShellSidebar.tsx
+@@ -86,6 +86,7 @@ export const MailShellSidebar = memo(function MailShellSidebar({
+   const { emailAccountId, provider } = useAccount();
+   const isGoogle = isGoogleProvider(provider);
+   const isOutlook = isMicrosoftProvider(provider);
++  const hasFolders = isOutlook || provider === "thunderbird";
+   const terminology = getEmailTerminology(provider);
+   const { userLabels: allLabels, mutate: mutateLabels } = useLabels();
+   const { folders, mutate: mutateFolders } = useFolders(provider);
+@@ -211,7 +212,7 @@ export const MailShellSidebar = memo(function MailShellSidebar({
+           hrefFor={hrefFor}
+           onNavigate={onNavigate}
+           labels={isAllAccounts ? NO_LABELS : allLabels}
+-          folders={isAllAccounts || !isOutlook ? NO_FOLDERS : folders}
++          folders={isAllAccounts || !hasFolders ? NO_FOLDERS : folders}
+           countsById={isAllAccounts ? NO_COUNTS : countsById}
+           categories={
+             isAllAccounts
 diff --git a/apps/web/app/(landing)/login/ThunderbirdLoginForm.tsx b/apps/web/app/(landing)/login/ThunderbirdLoginForm.tsx
 new file mode 100644
-index 0000000..7358d43
+index 000000000..7358d4363
 --- /dev/null
 +++ b/apps/web/app/(landing)/login/ThunderbirdLoginForm.tsx
 @@ -0,0 +1,65 @@
@@ -926,9 +414,93 @@ index 0000000..7358d43
 +    </form>
 +  );
 +}
+diff --git a/apps/web/app/(landing)/login/page.tsx b/apps/web/app/(landing)/login/page.tsx
+index 40d2c821b..9a718c518 100644
+--- a/apps/web/app/(landing)/login/page.tsx
++++ b/apps/web/app/(landing)/login/page.tsx
+@@ -3,6 +3,8 @@ import type { Metadata } from "next";
+ import { redirect } from "next/navigation";
+ import Link from "next/link";
+ import { LoginForm } from "@/app/(landing)/login/LoginForm";
++import { ThunderbirdLoginForm } from "@/app/(landing)/login/ThunderbirdLoginForm";
++import { isLocalThunderbirdEnabled } from "@/utils/email/thunderbird-config";
+ import {
+   getEmailAlreadyLinkedDescription,
+   getRequiresReconsentDescription,
+@@ -54,6 +56,7 @@ export default async function AuthenticationPage(props: {
+           </p>
+         </div>
+         <div className="mt-4">
++          {isLocalThunderbirdEnabled() && <ThunderbirdLoginForm />}
+           <Suspense>
+             <LoginForm
+               enabledProviders={enabledProviders}
+diff --git a/apps/web/app/api/user/folders/route.ts b/apps/web/app/api/user/folders/route.ts
+index f5e4463d1..a51acd599 100644
+--- a/apps/web/app/api/user/folders/route.ts
++++ b/apps/web/app/api/user/folders/route.ts
+@@ -8,9 +8,12 @@ export type GetFoldersResponse = Awaited<ReturnType<typeof getFolders>>;
+ export const GET = withEmailProvider("user/folders", async (request) => {
+   const emailProvider = request.emailProvider;
+ 
+-  if (!isMicrosoftProvider(emailProvider.name)) {
++  if (
++    !isMicrosoftProvider(emailProvider.name) &&
++    emailProvider.name !== "thunderbird"
++  ) {
+     return NextResponse.json(
+-      { error: "Only Microsoft email providers are supported" },
++      { error: "This provider does not expose mailbox folders" },
+       { status: 400 },
+     );
+   }
+diff --git a/apps/web/app/layout.tsx b/apps/web/app/layout.tsx
+index 22d12c991..6f8d1f9dc 100644
+--- a/apps/web/app/layout.tsx
++++ b/apps/web/app/layout.tsx
+@@ -188,10 +188,10 @@ export default async function RootLayout({
+             <Toaster />
+           </GlobalProviders>
+         </PostHogProvider>
+-        <Analytics />
++        {!env.LOCAL_THUNDERBIRD_ENABLED && <Analytics />}
+         <AxiomWebVitals />
+         <UTM />
+-        <SpeedInsights />
++        {!env.LOCAL_THUNDERBIRD_ENABLED && <SpeedInsights />}
+         <WithCookieConsent>
+           {env.NEXT_PUBLIC_DUB_REFER_DOMAIN && (
+             <DubAnalytics
+diff --git a/apps/web/env.ts b/apps/web/env.ts
+index 6c92024c3..1aa296e95 100644
+--- a/apps/web/env.ts
++++ b/apps/web/env.ts
+@@ -62,6 +62,9 @@ const parsedEnv = createEnv({
+     ),
+ 
+     AUTH_SECRET: z.string().optional(),
++    LOCAL_THUNDERBIRD_ENABLED: booleanString.default(false),
++    THUNDERBIRD_BRIDGE_URL: z.string().url().optional(),
++    THUNDERBIRD_BRIDGE_TOKEN: z.string().min(32).optional(),
+     SCIM_CREDENTIAL_HASH_SECRET: z.string().min(32).optional(),
+     NEXTAUTH_SECRET: z.string().optional(),
+     AUTH_ALLOWED_EMAILS: z
+diff --git a/apps/web/hooks/useFolders.ts b/apps/web/hooks/useFolders.ts
+index 952d3e602..153526abd 100644
+--- a/apps/web/hooks/useFolders.ts
++++ b/apps/web/hooks/useFolders.ts
+@@ -3,7 +3,7 @@ import type { GetFoldersResponse } from "@/app/api/user/folders/route";
+ import { isMicrosoftProvider } from "@/utils/email/provider-types";
+ 
+ export function useFolders(provider: string) {
+-  const enabled = isMicrosoftProvider(provider);
++  const enabled = isMicrosoftProvider(provider) || provider === "thunderbird";
+   const { data, error, isLoading, mutate } = useSWR<GetFoldersResponse>(
+     enabled ? "/api/user/folders" : null,
+   );
 diff --git a/apps/web/scripts/setup-thunderbird.mts b/apps/web/scripts/setup-thunderbird.mts
 new file mode 100644
-index 0000000..5b9f1e4
+index 000000000..5b9f1e400
 --- /dev/null
 +++ b/apps/web/scripts/setup-thunderbird.mts
 @@ -0,0 +1,114 @@
@@ -1046,9 +618,107 @@ index 0000000..5b9f1e4
 +} finally {
 +  await db.$disconnect();
 +}
+diff --git a/apps/web/utils/assess.ts b/apps/web/utils/assess.ts
+index 57a1889af..95c314a06 100644
+--- a/apps/web/utils/assess.ts
++++ b/apps/web/utils/assess.ts
+@@ -9,6 +9,7 @@ import { GmailLabel } from "@/utils/gmail/label";
+ const DEFAULT_LABEL_COUNT: Record<EmailProvider["name"], number> = {
+   google: 13,
+   microsoft: 8,
++  thunderbird: 0,
+ };
+ 
+ export async function assessUser({
+diff --git a/apps/web/utils/auth.ts b/apps/web/utils/auth.ts
+index 96d9a9536..9390eaa49 100644
+--- a/apps/web/utils/auth.ts
++++ b/apps/web/utils/auth.ts
+@@ -50,6 +50,7 @@ import { mobileAuthProviderCompletion } from "@/utils/mobile-auth/provider-compl
+ import { safeExpo } from "@/utils/mobile-auth/expo";
+ import { clearAccountDisconnectedErrorIfResolved } from "@/utils/error-messages";
+ import { getEnabledLoginProviders } from "@/utils/oauth/login-providers";
++import { isLocalThunderbirdEnabled } from "@/utils/email/thunderbird-config";
+ import { getAppleClientSecret } from "@/utils/auth/apple-client-secret";
+ import { reconcileMicrosoftAccountSubject } from "@/utils/auth/microsoft-account-subject";
+ import { getScimOptions, assertScimUserActive } from "@/utils/auth/scim";
+@@ -255,7 +256,8 @@ export const betterAuthConfig = betterAuth({
+   ],
+   secret: env.AUTH_SECRET || env.NEXTAUTH_SECRET,
+   emailAndPassword: {
+-    enabled: false,
++    enabled: isLocalThunderbirdEnabled(),
++    disableSignUp: true,
+   },
+   database: prismaAdapter(prisma, {
+     provider: "postgresql",
+diff --git a/apps/web/utils/email/provider.ts b/apps/web/utils/email/provider.ts
+index 7b58d8e02..a6e31f23c 100644
+--- a/apps/web/utils/email/provider.ts
++++ b/apps/web/utils/email/provider.ts
+@@ -10,6 +10,10 @@ import { toRateLimitProvider } from "@/utils/email/rate-limit-mode-error";
+ import { recordEmailAccountProviderIssue } from "@/utils/email/provider-health";
+ import type { Logger } from "@/utils/logger";
+ import { flushLoggerSafely } from "@/utils/logger-flush";
++import { env } from "@/env";
++import prisma from "@/utils/prisma";
++import { ThunderbirdProvider } from "@/utils/email/thunderbird-provider";
++import { isLocalThunderbirdEnabled } from "@/utils/email/thunderbird-config";
+ 
+ export async function createEmailProvider({
+   emailAccountId,
+@@ -20,6 +24,36 @@ export async function createEmailProvider({
+   provider: string;
+   logger: Logger;
+ }): Promise<EmailProvider> {
++  if (provider === "thunderbird") {
++    if (!isLocalThunderbirdEnabled())
++      throw new Error("Local Thunderbird is disabled");
++    const mailbox = await prisma.emailAccount.findUniqueOrThrow({
++      where: { id: emailAccountId },
++      select: {
++        email: true,
++        account: { select: { provider: true, providerAccountId: true } },
++      },
++    });
++    if (mailbox.account.provider !== "thunderbird")
++      throw new Error("Mailbox provider mismatch");
++    const reader = new ThunderbirdProvider({
++      baseUrl: env.THUNDERBIRD_BRIDGE_URL!,
++      token: env.THUNDERBIRD_BRIDGE_TOKEN!,
++      accountId: mailbox.account.providerAccountId,
++    });
++    const account = (await reader.getAccounts()).find(
++      (account) => account.id === mailbox.account.providerAccountId,
++    );
++    if (
++      !account ||
++      account.email.toLowerCase() !== mailbox.email.toLowerCase()
++    ) {
++      throw new Error(
++        "Thunderbird account identity changed. Reconnect this mailbox.",
++      );
++    }
++    return reader;
++  }
+   const rateLimitProvider = toRateLimitProvider(provider);
+   if (!rateLimitProvider) throw new Error(`Unsupported provider: ${provider}`);
+ 
+diff --git a/apps/web/utils/email/rate-limit-mode-error.ts b/apps/web/utils/email/rate-limit-mode-error.ts
+index 23177fb07..ff6f0c78d 100644
+--- a/apps/web/utils/email/rate-limit-mode-error.ts
++++ b/apps/web/utils/email/rate-limit-mode-error.ts
+@@ -1,6 +1,6 @@
+ import type { EmailProvider } from "@/utils/email/types";
+ 
+-export type EmailProviderRateLimitProvider = EmailProvider["name"];
++export type EmailProviderRateLimitProvider = Exclude<EmailProvider["name"], "thunderbird">;
+ 
+ type EmailProviderRateLimitMetadata = {
+   apiErrorType: string;
 diff --git a/apps/web/utils/email/thunderbird-config.ts b/apps/web/utils/email/thunderbird-config.ts
 new file mode 100644
-index 0000000..6f950b9
+index 000000000..6f950b9c1
 --- /dev/null
 +++ b/apps/web/utils/email/thunderbird-config.ts
 @@ -0,0 +1,18 @@
@@ -1072,7 +742,7 @@ index 0000000..6f950b9
 +}
 diff --git a/apps/web/utils/email/thunderbird-provider.test.ts b/apps/web/utils/email/thunderbird-provider.test.ts
 new file mode 100644
-index 0000000..d5675cf
+index 000000000..d5675cffc
 --- /dev/null
 +++ b/apps/web/utils/email/thunderbird-provider.test.ts
 @@ -0,0 +1,137 @@
@@ -1215,10 +885,10 @@ index 0000000..d5675cf
 +});
 diff --git a/apps/web/utils/email/thunderbird-provider.ts b/apps/web/utils/email/thunderbird-provider.ts
 new file mode 100644
-index 0000000..937def4
+index 000000000..c7b7022c5
 --- /dev/null
 +++ b/apps/web/utils/email/thunderbird-provider.ts
-@@ -0,0 +1,425 @@
+@@ -0,0 +1,435 @@
 +import { randomUUID } from "node:crypto";
 +import { ThunderbirdMailReader } from "@/utils/email/thunderbird";
 +import type {
@@ -1555,15 +1225,19 @@ index 0000000..937def4
 +  }
 +
 +  // Moving to an existing folder is supported; other writes remain unavailable.
++  addDraftAttachment: EmailProvider["addDraftAttachment"] = unsupported;
 +  archiveMessage: EmailProvider["archiveMessage"] = unsupported;
 +  archiveMessages: EmailProvider["archiveMessages"] = unsupported;
 +  archiveThread: EmailProvider["archiveThread"] = unsupported;
 +  archiveThreadWithLabel: EmailProvider["archiveThreadWithLabel"] = unsupported;
 +  blockUnsubscribedEmail: EmailProvider["blockUnsubscribedEmail"] = unsupported;
 +  bulkArchiveFromSenders: EmailProvider["bulkArchiveFromSenders"] = unsupported;
++  bulkArchiveSenderOrThrow: EmailProvider["bulkArchiveSenderOrThrow"] =
++    unsupported;
 +  bulkArchiveThreads: EmailProvider["bulkArchiveThreads"] = unsupported;
 +  bulkTrashFromSenders: EmailProvider["bulkTrashFromSenders"] = unsupported;
 +  checkIfReplySent: EmailProvider["checkIfReplySent"] = unsupported;
++  countMessages: EmailProvider["countMessages"] = unsupported;
 +  countReceivedMessages: EmailProvider["countReceivedMessages"] = unsupported;
 +  createAutoArchiveFilter: EmailProvider["createAutoArchiveFilter"] =
 +    unsupported;
@@ -1577,6 +1251,8 @@ index 0000000..937def4
 +  draftEmail: EmailProvider["draftEmail"] = unsupported;
 +  forwardEmail: EmailProvider["forwardEmail"] = unsupported;
 +  getAccessToken: EmailProvider["getAccessToken"] = unsupported;
++  getContactPhotos: EmailProvider["getContactPhotos"] = unsupported;
++  getDraftAttachments: EmailProvider["getDraftAttachments"] = unsupported;
 +  getAttachment: EmailProvider["getAttachment"] = unsupported;
 +  getAttachmentStream: EmailProvider["getAttachmentStream"] = unsupported;
 +  getMessageByRfc822MessageId: EmailProvider["getMessageByRfc822MessageId"] =
@@ -1588,6 +1264,7 @@ index 0000000..937def4
 +    unsupported;
 +  getOrCreateInboxZeroLabel: EmailProvider["getOrCreateInboxZeroLabel"] =
 +    unsupported;
++  getSendAsAddresses: EmailProvider["getSendAsAddresses"] = unsupported;
 +  getSentMessageIds: EmailProvider["getSentMessageIds"] = unsupported;
 +  getSentThreadsExcluding: EmailProvider["getSentThreadsExcluding"] =
 +    unsupported;
@@ -1605,6 +1282,7 @@ index 0000000..937def4
 +  markRead: EmailProvider["markRead"] = unsupported;
 +  markReadThread: EmailProvider["markReadThread"] = unsupported;
 +  markSpam: EmailProvider["markSpam"] = unsupported;
++  removeDraftAttachment: EmailProvider["removeDraftAttachment"] = unsupported;
 +  removeThreadLabel: EmailProvider["removeThreadLabel"] = unsupported;
 +  removeThreadLabels: EmailProvider["removeThreadLabels"] = unsupported;
 +  renameFolder: EmailProvider["renameFolder"] = unsupported;
@@ -1613,6 +1291,8 @@ index 0000000..937def4
 +  sendEmail: EmailProvider["sendEmail"] = unsupported;
 +  sendEmailWithHtml: EmailProvider["sendEmailWithHtml"] = unsupported;
 +  starMessage: EmailProvider["starMessage"] = unsupported;
++  startDraftAttachmentUpload: EmailProvider["startDraftAttachmentUpload"] =
++    unsupported;
 +  trashMessages: EmailProvider["trashMessages"] = unsupported;
 +  trashThread: EmailProvider["trashThread"] = unsupported;
 +  unarchiveMessages: EmailProvider["unarchiveMessages"] = unsupported;
@@ -1646,7 +1326,7 @@ index 0000000..937def4
 +}
 diff --git a/apps/web/utils/email/thunderbird.ts b/apps/web/utils/email/thunderbird.ts
 new file mode 100644
-index 0000000..74b9c83
+index 000000000..74b9c8366
 --- /dev/null
 +++ b/apps/web/utils/email/thunderbird.ts
 @@ -0,0 +1,425 @@
@@ -2075,9 +1755,270 @@ index 0000000..74b9c83
 +    },
 +  };
 +}
+diff --git a/apps/web/utils/email/types.ts b/apps/web/utils/email/types.ts
+index 0ad9fba73..c81b304c9 100644
+--- a/apps/web/utils/email/types.ts
++++ b/apps/web/utils/email/types.ts
+@@ -424,7 +424,7 @@ export interface EmailProvider {
+     ownerEmail: string,
+     folderName: string,
+   ): Promise<void>;
+-  readonly name: "google" | "microsoft";
++  readonly name: "google" | "microsoft" | "thunderbird";
+   removeDraftAttachment(
+     draftId: string,
+     attachmentId: string,
+diff --git a/apps/web/utils/mail-api/operations.test.ts b/apps/web/utils/mail-api/operations.test.ts
+index f25901a65..6edadcb1e 100644
+--- a/apps/web/utils/mail-api/operations.test.ts
++++ b/apps/web/utils/mail-api/operations.test.ts
+@@ -87,6 +87,50 @@ describe("createEmailProviderOperationExecutor", () => {
+     });
+   });
+ 
++  it("allows Thunderbird folder moves but rejects other mutations", async () => {
++    const moveThreadToFolder = vi.fn();
++    const provider = {
++      name: "thunderbird",
++      moveThreadToFolder,
++      getMessage: vi.fn(async () => ({
++        id: "m1",
++        threadId: "m1",
++        headers: { to: "owner@example.invalid" },
++      })),
++      getMessagesBatch: vi.fn(async () => []),
++      archiveMessages: vi.fn(),
++    } as unknown as EmailProvider;
++    const executor = createEmailProviderOperationExecutor({
++      provider,
++      accountId: "acc-1",
++    });
++    const base = metadataOperation([{ accountId: "acc-1", messageId: "m1" }]);
++    const result = await executor.execute({
++      operation: {
++        ...base,
++        intent: {
++          kind: "metadata",
++          targets: [{ accountId: "acc-1", messageId: "m1" }],
++          change: { kind: "move", folderId: "destination" },
++        },
++      },
++      attemptId: "move-test",
++      signal: new AbortController().signal,
++    });
++    expect(result.status).toBe("confirmed");
++    expect(moveThreadToFolder).toHaveBeenCalledWith(
++      "m1",
++      "owner@example.invalid",
++      "destination",
++    );
++    const rejected = await executor.execute({
++      operation: base,
++      attemptId: "archive-test",
++      signal: new AbortController().signal,
++    });
++    expect(rejected.status).toBe("rejected");
++    expect(provider.archiveMessages).not.toHaveBeenCalled();
++  });
+   it("archives every target with one provider call and one batched read", async () => {
+     const archiveMessages = vi.fn();
+     const getMessage = vi.fn();
+diff --git a/apps/web/utils/mail-api/operations.ts b/apps/web/utils/mail-api/operations.ts
+index 67df5ff87..3dd5ac43e 100644
+--- a/apps/web/utils/mail-api/operations.ts
++++ b/apps/web/utils/mail-api/operations.ts
+@@ -55,6 +55,14 @@ export function createEmailProviderOperationExecutor(input: {
+   const { provider, accountId } = input;
+   return {
+     async execute({ operation }) {
++      if (
++        provider.name === "thunderbird" &&
++        !(
++          operation.intent.kind === "metadata" &&
++          operation.intent.change.kind === "move"
++        )
++      )
++        return { status: "rejected", code: "unsupported", targets: [] };
+       if (operation.intent.kind === "send") {
+         return executeSend(provider, accountId, operation);
+       }
+diff --git a/apps/web/utils/mail-api/source.ts b/apps/web/utils/mail-api/source.ts
+index 4fd0d96ed..3d3b86342 100644
+--- a/apps/web/utils/mail-api/source.ts
++++ b/apps/web/utils/mail-api/source.ts
+@@ -68,7 +68,8 @@ export function createEmailProviderMailboxSource(input: {
+             provider.localMailSyncStrategy === "folder-delta"
+               ? "folder_delta"
+               : "account_history",
+-          supportedChanges: [...SUPPORTED_CHANGES],
++          supportedChanges:
++            provider.name === "thunderbird" ? [] : [...SUPPORTED_CHANGES],
+           maxPageSize,
+           maxHydrationBatch: 20,
+         },
+@@ -146,7 +147,8 @@ export function createEmailProviderMailboxSource(input: {
+               bootstrapId: "mailbox",
+               scopeId: token.scopeId ?? "primary",
+               changes,
+-              requiredHydration,
++              requiredHydration:
++                provider.name === "thunderbird" ? [] : requiredHydration,
+               bodies,
+               nextPage: JSON.stringify({
+                 afterMs: token.afterMs ?? 0,
+@@ -165,7 +167,8 @@ export function createEmailProviderMailboxSource(input: {
+             bootstrapId: "mailbox",
+             scopeId: token.scopeId ?? "primary",
+             changes,
+-            requiredHydration,
++            requiredHydration:
++              provider.name === "thunderbird" ? [] : requiredHydration,
+             bodies,
+             nextPage: null,
+             catchUpFrom: await finalCatchUpFrom({
+@@ -226,10 +229,13 @@ export function createEmailProviderMailboxSource(input: {
+             ],
+             // Delta pages carry metadata only, so a body-derived flag such as
+             // a meeting invitation must not stand in for the body.
+-            requiredHydration: page.upsertedMessages.map((message) => ({
+-              accountId,
+-              messageId: message.id,
+-            })),
++            requiredHydration:
++              provider.name === "thunderbird"
++                ? []
++                : page.upsertedMessages.map((message) => ({
++                    accountId,
++                    messageId: message.id,
++                  })),
+             roundComplete: !page.hasMore,
+           },
+         };
+diff --git a/apps/web/utils/mail-engine/MailEngineHost.tsx b/apps/web/utils/mail-engine/MailEngineHost.tsx
+index 6865c348f..956f1e7d6 100644
+--- a/apps/web/utils/mail-engine/MailEngineHost.tsx
++++ b/apps/web/utils/mail-engine/MailEngineHost.tsx
+@@ -179,7 +179,12 @@ function MailEngineRuntimeInner({ children }: { children: ReactNode }) {
+     if (mode === "unavailable") {
+       return;
+     }
+-    const mailProvider = isMicrosoftProvider(provider) ? "microsoft" : "google";
++    const mailProvider =
++      provider === "thunderbird"
++        ? "thunderbird"
++        : isMicrosoftProvider(provider)
++          ? "microsoft"
++          : "google";
+     const abort = new AbortController();
+     let published: MailClient | undefined;
+     let stage: MailEngineStartupStage =
+diff --git a/apps/web/utils/mail-engine/create-browser-engine.ts b/apps/web/utils/mail-engine/create-browser-engine.ts
+index 209eb18db..fb4a2cde5 100644
+--- a/apps/web/utils/mail-engine/create-browser-engine.ts
++++ b/apps/web/utils/mail-engine/create-browser-engine.ts
+@@ -18,7 +18,7 @@ import { MailEngineStartupError } from "./startup-error";
+ export type BrowserMailEngine = MailEngine & {
+   ensureAccount(input: {
+     accountId: string;
+-    provider: "google" | "microsoft";
++    provider: "google" | "microsoft" | "thunderbird";
+     generation?: string;
+   }): Promise<void>;
+ };
+@@ -42,6 +42,7 @@ export async function createBrowserMailEngine(
+       ) {
+         throw error;
+       }
++      }
+       await new Promise((resolve) =>
+         setTimeout(resolve, Math.min(50 * 2 ** attempt, 1000)),
+       );
+diff --git a/apps/web/utils/mail-engine/desktop-ipc.ts b/apps/web/utils/mail-engine/desktop-ipc.ts
+index e5d2e3c43..7e971ef9d 100644
+--- a/apps/web/utils/mail-engine/desktop-ipc.ts
++++ b/apps/web/utils/mail-engine/desktop-ipc.ts
+@@ -17,7 +17,7 @@ export function hasDesktopMailEngineIpc() {
+ }
+ 
+ export function createDesktopIpcMailClient(input?: {
+-  provider?: "google" | "microsoft";
++  provider?: "google" | "microsoft" | "thunderbird";
+ }) {
+   const desktop = getInboxZeroDesktopApp();
+   const invoke = desktop?.mailEngine;
+diff --git a/apps/web/utils/mail-engine/engine-worker.ts b/apps/web/utils/mail-engine/engine-worker.ts
+index bd4dd3576..ea6e35a3d 100644
+--- a/apps/web/utils/mail-engine/engine-worker.ts
++++ b/apps/web/utils/mail-engine/engine-worker.ts
+@@ -55,7 +55,11 @@ async function createWorkerEngine(
+       await store.ensureAccount({
+         accountId: account.accountId,
+         provider: account.provider,
+-        generation: account.generation ?? account.accountId,
++        generation:
++          account.generation ??
++          (account.provider === "thunderbird"
++            ? `${account.accountId}:thunderbird-rfc-v1`
++            : account.accountId),
+       });
+     };
+     stage = "account-init";
+diff --git a/apps/web/utils/mail-engine/tab-channel.ts b/apps/web/utils/mail-engine/tab-channel.ts
+index f80901c3d..299b04248 100644
+--- a/apps/web/utils/mail-engine/tab-channel.ts
++++ b/apps/web/utils/mail-engine/tab-channel.ts
+@@ -18,7 +18,7 @@ export type TabMailMessage =
+   | {
+       type: "hello";
+       accountId: string;
+-      provider?: "google" | "microsoft";
++      provider?: "google" | "microsoft" | "thunderbird";
+     }
+   | { type: "ready" }
+   | { type: "owner"; accountId: string; ownerId: string }
+@@ -66,7 +66,7 @@ export function bindTabMailOwner(input: {
+   bus: TabMailBus;
+   ensureAccount?: (input: {
+     accountId: string;
+-    provider: "google" | "microsoft";
++    provider: "google" | "microsoft" | "thunderbird";
+   }) => Promise<void>;
+ }): () => void {
+   const ownerId = crypto.randomUUID();
+@@ -162,7 +162,7 @@ export function disposeTabFollowerClient(client: MailClient) {
+ 
+ export function createTabFollowerClient(input: {
+   accountId: string;
+-  provider?: "google" | "microsoft";
++  provider?: "google" | "microsoft" | "thunderbird";
+   bus: TabMailBus;
+ }): MailClient {
+   let ownerId: string | undefined;
+@@ -370,7 +370,7 @@ function announceOwner(
+     bus: TabMailBus;
+     ensureAccount?: (account: {
+       accountId: string;
+-      provider: "google" | "microsoft";
++      provider: "google" | "microsoft" | "thunderbird";
+     }) => Promise<void>;
+   },
+   message: Extract<TabMailMessage, { type: "hello" }>,
+diff --git a/apps/web/utils/mail-engine/worker-protocol.ts b/apps/web/utils/mail-engine/worker-protocol.ts
+index 4a201795b..821374452 100644
+--- a/apps/web/utils/mail-engine/worker-protocol.ts
++++ b/apps/web/utils/mail-engine/worker-protocol.ts
+@@ -4,7 +4,7 @@ import type { QuerySnapshot } from "@inboxzero/mail-core/queries";
+ 
+ export type BrowserEngineStart = {
+   accountId: string;
+-  provider: "google" | "microsoft";
++  provider: "google" | "microsoft" | "thunderbird";
+   generation?: string;
+   persist?: boolean;
+   maxPendingOperations?: number;
 diff --git a/compose.thunderbird.yaml b/compose.thunderbird.yaml
 new file mode 100644
-index 0000000..10793e0
+index 000000000..10793e0c0
 --- /dev/null
 +++ b/compose.thunderbird.yaml
 @@ -0,0 +1,34 @@
@@ -2115,3 +2056,75 @@ index 0000000..10793e0
 +    restart: unless-stopped
 +volumes:
 +  thunderbird-db:
+diff --git a/packages/mail-core/src/identities.ts b/packages/mail-core/src/identities.ts
+index d7277ad71..6be71f110 100644
+--- a/packages/mail-core/src/identities.ts
++++ b/packages/mail-core/src/identities.ts
+@@ -8,7 +8,7 @@ export const conversationIdSchema = z.string().min(1).max(256);
+ export const operationIdSchema = z.string().min(1).max(128);
+ export const draftIdSchema = z.string().min(1).max(128);
+ 
+-export const providerSchema = z.enum(["google", "microsoft"]);
++export const providerSchema = z.enum(["google", "microsoft", "thunderbird"]);
+ export type Provider = z.infer<typeof providerSchema>;
+ 
+ export const messageKeySchema = z.object({
+diff --git a/packages/mail-sqlite/src/migrations.ts b/packages/mail-sqlite/src/migrations.ts
+index 7c3bacf4f..781b2fe80 100644
+--- a/packages/mail-sqlite/src/migrations.ts
++++ b/packages/mail-sqlite/src/migrations.ts
+@@ -22,7 +22,7 @@ CREATE TABLE IF NOT EXISTS profile_state (
+ 
+ CREATE TABLE IF NOT EXISTS accounts (
+   account_id TEXT PRIMARY KEY,
+-  provider TEXT NOT NULL CHECK (provider IN ('google', 'microsoft')),
++  provider TEXT NOT NULL CHECK (provider IN ('google', 'microsoft', 'thunderbird')),
+   generation TEXT NOT NULL,
+   assistant_cursor TEXT
+ );
+diff --git a/packages/mail-sqlite/src/store.ts b/packages/mail-sqlite/src/store.ts
+index e0332a003..55b2ac0e5 100644
+--- a/packages/mail-sqlite/src/store.ts
++++ b/packages/mail-sqlite/src/store.ts
+@@ -2253,7 +2253,7 @@ async function inspectState(
+     revision,
+     accounts: accounts.map((row) => ({
+       accountId: String(row.account_id),
+-      provider: String(row.provider) as "google" | "microsoft",
++      provider: String(row.provider) as "google" | "microsoft" | "thunderbird",
+       generation: String(row.generation),
+       assistantCursor:
+         row.assistant_cursor == null ? null : String(row.assistant_cursor),
+@@ -2340,7 +2340,7 @@ async function resetAccountForGeneration(
+   tx: SqlTransaction,
+   input: {
+     accountId: string;
+-    provider: "google" | "microsoft";
++    provider: "google" | "microsoft" | "thunderbird";
+     generation: string;
+   },
+ ) {
+diff --git a/turbo.json b/turbo.json
+index fc1c1acfb..6a0b164fa 100644
+--- a/turbo.json
++++ b/turbo.json
+@@ -16,6 +16,9 @@
+         "PREVIEW_DATABASE_URL_UNPOOLED",
+         "NEXTAUTH_SECRET",
+         "AUTH_SECRET",
++        "LOCAL_THUNDERBIRD_ENABLED",
++        "THUNDERBIRD_BRIDGE_URL",
++        "THUNDERBIRD_BRIDGE_TOKEN",
+         "SCIM_CREDENTIAL_HASH_SECRET",
+         "AUTH_ALLOWED_EMAILS",
+         "AUTH_ALLOWED_EMAIL_DOMAINS",
+@@ -317,6 +320,9 @@
+         "MCP_ALLOW_PRIVATE_IPS",
+         "DATABASE_URL",
+         "AUTH_SECRET",
++        "LOCAL_THUNDERBIRD_ENABLED",
++        "THUNDERBIRD_BRIDGE_URL",
++        "THUNDERBIRD_BRIDGE_TOKEN",
+         "SCIM_CREDENTIAL_HASH_SECRET",
+         "AUTH_ALLOWED_EMAILS",
+         "AUTH_ALLOWED_EMAIL_DOMAINS",
