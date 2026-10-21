@@ -1,7 +1,7 @@
 {
   "inbox-zero": {
     "url": "https://github.com/elie222/inbox-zero.git",
-    "revision": "a281a644ea4c4cc91fbf327adfd91dc7755a6405",
+    "revision": "10cb2416aead0359e02341cc48f92dfd8deb870d",
     "patch": "integration/inbox-zero.patch"
   },
   "thunderbird-cli": {

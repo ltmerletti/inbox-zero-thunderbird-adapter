@@ -1,5 +1,5 @@
 diff --git a/apps/web/.env.example b/apps/web/.env.example
-index 8c191efb0..6771a3da5 100644
+index a270acb85..051630660 100644
 --- a/apps/web/.env.example
 +++ b/apps/web/.env.example
 @@ -1,3 +1,8 @@
@@ -131,7 +131,7 @@ index 000000000..9aabc09f7
 +  );
 +}
 diff --git a/apps/web/app/(app)/[emailAccountId]/mail/ListToolbar.tsx b/apps/web/app/(app)/[emailAccountId]/mail/ListToolbar.tsx
-index 3a7b5d90e..5d2d44558 100644
+index 9b451ed55..9899ddb45 100644
 --- a/apps/web/app/(app)/[emailAccountId]/mail/ListToolbar.tsx
 +++ b/apps/web/app/(app)/[emailAccountId]/mail/ListToolbar.tsx
 @@ -17,6 +17,7 @@ import {
@@ -141,24 +141,24 @@ index 3a7b5d90e..5d2d44558 100644
 +  FolderInputIcon,
    MailIcon,
    MailOpenIcon,
-   RowsIcon,
+   PanelLeftIcon,
 @@ -88,6 +89,7 @@ export type ListToolbarProps = {
    onStarSelected: () => void;
    /** Omitted when the current view can't label (combined inboxes). */
    onLabelSelected?: () => void;
 +  onMoveSelected?: () => void;
    onClearSelection: () => void;
- };
- 
+   /** Opens the mail navigation panel on screens too narrow for the rail. */
+   onOpenMailNav: () => void;
 @@ -118,6 +120,7 @@ export const ListToolbar = memo(function ListToolbar({
    isStarredSelected,
    onStarSelected,
    onLabelSelected,
 +  onMoveSelected,
    onClearSelection,
+   onOpenMailNav,
  }: ListToolbarProps) {
-   const LayoutIcon = layout === "split" ? ColumnsIcon : RowsIcon;
-@@ -209,6 +212,19 @@ export const ListToolbar = memo(function ListToolbar({
+@@ -226,6 +229,19 @@ export const ListToolbar = memo(function ListToolbar({
              </button>
            </Tooltip>
  
@@ -179,7 +179,7 @@ index 3a7b5d90e..5d2d44558 100644
              <Tooltip shortcuts={["label"]}>
                <button
 diff --git a/apps/web/app/(app)/[emailAccountId]/mail/MailShell.tsx b/apps/web/app/(app)/[emailAccountId]/mail/MailShell.tsx
-index 1f6d1f804..5d1a2fed7 100644
+index 98a64e1c3..eb341f4c5 100644
 --- a/apps/web/app/(app)/[emailAccountId]/mail/MailShell.tsx
 +++ b/apps/web/app/(app)/[emailAccountId]/mail/MailShell.tsx
 @@ -1,5 +1,7 @@
@@ -190,7 +190,7 @@ index 1f6d1f804..5d1a2fed7 100644
  import type { ListThread } from "./types";
  
  import { MailPanelErrorBoundary } from "@/app/(app)/[emailAccountId]/mail/MailPanelErrorBoundary";
-@@ -129,6 +131,7 @@ export function MailShell() {
+@@ -134,6 +136,7 @@ export function MailShell() {
    const { data: accountsData } = useAccounts();
    const isGoogle = isGoogleProvider(provider);
    const isOutlook = isMicrosoftProvider(provider);
@@ -198,7 +198,7 @@ index 1f6d1f804..5d1a2fed7 100644
    const { userLabels } = useEmailLabels();
    const { userLabels: allLabels, mutate: mutateLabels } = useLabels();
    const { folders } = useFolders(provider);
-@@ -812,6 +815,7 @@ export function MailShell() {
+@@ -847,6 +850,7 @@ export function MailShell() {
    );
  
    useEffect(() => {
@@ -206,7 +206,7 @@ index 1f6d1f804..5d1a2fed7 100644
      if (!openReaderThreadKey) {
        readAttemptedForOpenThread.current = null;
        return;
-@@ -834,6 +838,7 @@ export function MailShell() {
+@@ -869,6 +873,7 @@ export function MailShell() {
      readAttemptedForOpenThread.current = openThreadKey;
      markRead([openThreadKey]);
    }, [
@@ -214,7 +214,7 @@ index 1f6d1f804..5d1a2fed7 100644
      isOpenThreadUnread,
      markRead,
      openMessages.length,
-@@ -903,13 +908,19 @@ export function MailShell() {
+@@ -938,13 +943,19 @@ export function MailShell() {
      currentLabelTargets.every(
        (target) => target.emailAccountId === labelAccountId,
      );
@@ -236,7 +236,7 @@ index 1f6d1f804..5d1a2fed7 100644
    });
    const singleActionTarget =
      actionTargets.length === 1 ? actionTargets.at(0) : undefined;
-@@ -962,7 +973,7 @@ export function MailShell() {
+@@ -997,7 +1008,7 @@ export function MailShell() {
          markRead: markReadTargets,
          markSpam: markSpamTargets,
          markUnread: markUnreadTargets,
@@ -245,7 +245,7 @@ index 1f6d1f804..5d1a2fed7 100644
          openExternal:
            isReaderTarget && openExternalUrl
              ? () =>
-@@ -997,6 +1008,7 @@ export function MailShell() {
+@@ -1032,6 +1043,7 @@ export function MailShell() {
        targetsArchived,
        actionTargets,
        canLabel,
@@ -253,7 +253,7 @@ index 1f6d1f804..5d1a2fed7 100644
        isReaderTarget,
        allStarred,
        starTargets,
-@@ -1143,7 +1155,7 @@ export function MailShell() {
+@@ -1184,7 +1196,7 @@ export function MailShell() {
        extendSelectionDown: () => extendSelection(1),
        extendSelectionUp: () => extendSelection(-1),
        label: canLabel ? openLabelPicker : undefined,
@@ -262,7 +262,7 @@ index 1f6d1f804..5d1a2fed7 100644
        archive: targetsArchived ? undefined : archiveTargets,
        star: starTargets,
        markSpam: markSpamTargets,
-@@ -1315,10 +1327,10 @@ export function MailShell() {
+@@ -1361,10 +1373,10 @@ export function MailShell() {
    );
    const searchFolders = useMemo(
      () =>
@@ -275,7 +275,7 @@ index 1f6d1f804..5d1a2fed7 100644
    );
    const showSplitTabs = !isScoped && !searchQuery;
    const threadCount = threads.length;
-@@ -1356,10 +1368,15 @@ export function MailShell() {
+@@ -1402,10 +1414,15 @@ export function MailShell() {
        </EmailAccountScopeProvider>
      ) : null;
  
@@ -292,7 +292,7 @@ index 1f6d1f804..5d1a2fed7 100644
            threadIds={labelPicker.targets.map((target) => target.threadId)}
            mode={labelPicker.mode}
            onClose={() => setLabelPicker(null)}
-@@ -1428,7 +1445,7 @@ export function MailShell() {
+@@ -1467,7 +1484,7 @@ export function MailShell() {
                  searchFolders={searchFolders}
                  searchVariant={getMailSearchVariant({
                    isAllAccounts,
@@ -301,7 +301,7 @@ index 1f6d1f804..5d1a2fed7 100644
                  })}
                  onToggleLayout={toggleLayout}
                  expandedPreview={expandedPreview}
-@@ -1450,6 +1467,11 @@ export function MailShell() {
+@@ -1488,6 +1505,11 @@ export function MailShell() {
                  isStarredSelected={allStarred}
                  onStarSelected={starTargets}
                  onLabelSelected={canLabel ? openLabelPicker : undefined}
@@ -313,7 +313,7 @@ index 1f6d1f804..5d1a2fed7 100644
                  onClearSelection={selection.clear}
                />
                {showSplitTabs && (
-@@ -1554,7 +1576,7 @@ export function MailShell() {
+@@ -1583,7 +1605,7 @@ export function MailShell() {
                  onMarkSpam={markSpamTargets}
                  onDelete={trashTargets}
                  onLabel={canLabel ? openLabelPicker : undefined}
@@ -323,10 +323,10 @@ index 1f6d1f804..5d1a2fed7 100644
                  onComment={openTeamComments}
                  isMenuOpen={isMenuOpen}
 diff --git a/apps/web/app/(app)/[emailAccountId]/mail/MailShellSidebar.tsx b/apps/web/app/(app)/[emailAccountId]/mail/MailShellSidebar.tsx
-index 7200a664d..070923669 100644
+index 2a6be9e23..94ffc73d6 100644
 --- a/apps/web/app/(app)/[emailAccountId]/mail/MailShellSidebar.tsx
 +++ b/apps/web/app/(app)/[emailAccountId]/mail/MailShellSidebar.tsx
-@@ -86,6 +86,7 @@ export const MailShellSidebar = memo(function MailShellSidebar({
+@@ -98,6 +98,7 @@ export const MailShellSidebar = memo(function MailShellSidebar({
    const { emailAccountId, provider } = useAccount();
    const isGoogle = isGoogleProvider(provider);
    const isOutlook = isMicrosoftProvider(provider);
@@ -334,15 +334,15 @@ index 7200a664d..070923669 100644
    const terminology = getEmailTerminology(provider);
    const { userLabels: allLabels, mutate: mutateLabels } = useLabels();
    const { folders, mutate: mutateFolders } = useFolders(provider);
-@@ -211,7 +212,7 @@ export const MailShellSidebar = memo(function MailShellSidebar({
-           hrefFor={hrefFor}
-           onNavigate={onNavigate}
-           labels={isAllAccounts ? NO_LABELS : allLabels}
--          folders={isAllAccounts || !isOutlook ? NO_FOLDERS : folders}
-+          folders={isAllAccounts || !hasFolders ? NO_FOLDERS : folders}
-           countsById={isAllAccounts ? NO_COUNTS : countsById}
-           categories={
-             isAllAccounts
+@@ -249,7 +250,7 @@ export const MailShellSidebar = memo(function MailShellSidebar({
+       hrefFor={hrefFor}
+       onNavigate={inSheet ? navigateFromSheet : onNavigate}
+       labels={isAllAccounts ? NO_LABELS : allLabels}
+-      folders={isAllAccounts || !isOutlook ? NO_FOLDERS : folders}
++      folders={isAllAccounts || !hasFolders ? NO_FOLDERS : folders}
+       countsById={isAllAccounts ? NO_COUNTS : countsById}
+       categories={
+         isAllAccounts
 diff --git a/apps/web/app/(landing)/login/ThunderbirdLoginForm.tsx b/apps/web/app/(landing)/login/ThunderbirdLoginForm.tsx
 new file mode 100644
 index 000000000..7358d4363
@@ -455,24 +455,24 @@ index f5e4463d1..a51acd599 100644
      );
    }
 diff --git a/apps/web/app/layout.tsx b/apps/web/app/layout.tsx
-index 22d12c991..6f8d1f9dc 100644
+index 7084bc5e8..0c31ea009 100644
 --- a/apps/web/app/layout.tsx
 +++ b/apps/web/app/layout.tsx
-@@ -188,10 +188,10 @@ export default async function RootLayout({
+@@ -205,10 +205,10 @@ export default async function RootLayout({
              <Toaster />
            </GlobalProviders>
          </PostHogProvider>
--        <Analytics />
-+        {!env.LOCAL_THUNDERBIRD_ENABLED && <Analytics />}
+-        {isVercel && <Analytics />}
++        {isVercel && !env.LOCAL_THUNDERBIRD_ENABLED && <Analytics />}
          <AxiomWebVitals />
          <UTM />
--        <SpeedInsights />
-+        {!env.LOCAL_THUNDERBIRD_ENABLED && <SpeedInsights />}
+-        {isVercel && <SpeedInsights />}
++        {isVercel && !env.LOCAL_THUNDERBIRD_ENABLED && <SpeedInsights />}
          <WithCookieConsent>
            {env.NEXT_PUBLIC_DUB_REFER_DOMAIN && (
              <DubAnalytics
 diff --git a/apps/web/env.ts b/apps/web/env.ts
-index 6c92024c3..1aa296e95 100644
+index a860b257b..ebc4e88f6 100644
 --- a/apps/web/env.ts
 +++ b/apps/web/env.ts
 @@ -62,6 +62,9 @@ const parsedEnv = createEnv({
@@ -486,18 +486,18 @@ index 6c92024c3..1aa296e95 100644
      NEXTAUTH_SECRET: z.string().optional(),
      AUTH_ALLOWED_EMAILS: z
 diff --git a/apps/web/hooks/useFolders.ts b/apps/web/hooks/useFolders.ts
-index 952d3e602..153526abd 100644
+index d8c23bcc9..cb7e3e0df 100644
 --- a/apps/web/hooks/useFolders.ts
 +++ b/apps/web/hooks/useFolders.ts
 @@ -3,7 +3,7 @@ import type { GetFoldersResponse } from "@/app/api/user/folders/route";
  import { isMicrosoftProvider } from "@/utils/email/provider-types";
  
- export function useFolders(provider: string) {
+ export function useFolders(provider: string, emailAccountId?: string) {
 -  const enabled = isMicrosoftProvider(provider);
 +  const enabled = isMicrosoftProvider(provider) || provider === "thunderbird";
-   const { data, error, isLoading, mutate } = useSWR<GetFoldersResponse>(
-     enabled ? "/api/user/folders" : null,
-   );
+   const key = emailAccountId
+     ? ["/api/user/folders", emailAccountId]
+     : "/api/user/folders";
 diff --git a/apps/web/scripts/setup-thunderbird.mts b/apps/web/scripts/setup-thunderbird.mts
 new file mode 100644
 index 000000000..5b9f1e400
@@ -1756,7 +1756,7 @@ index 000000000..74b9c8366
 +  };
 +}
 diff --git a/apps/web/utils/email/types.ts b/apps/web/utils/email/types.ts
-index 0ad9fba73..c81b304c9 100644
+index a1382ae39..e36e22788 100644
 --- a/apps/web/utils/email/types.ts
 +++ b/apps/web/utils/email/types.ts
 @@ -424,7 +424,7 @@ export interface EmailProvider {
@@ -1824,7 +1824,7 @@ index f25901a65..6edadcb1e 100644
      const archiveMessages = vi.fn();
      const getMessage = vi.fn();
 diff --git a/apps/web/utils/mail-api/operations.ts b/apps/web/utils/mail-api/operations.ts
-index 67df5ff87..3dd5ac43e 100644
+index ec23ce1e4..a191ae03a 100644
 --- a/apps/web/utils/mail-api/operations.ts
 +++ b/apps/web/utils/mail-api/operations.ts
 @@ -55,6 +55,14 @@ export function createEmailProviderOperationExecutor(input: {
@@ -1843,10 +1843,10 @@ index 67df5ff87..3dd5ac43e 100644
          return executeSend(provider, accountId, operation);
        }
 diff --git a/apps/web/utils/mail-api/source.ts b/apps/web/utils/mail-api/source.ts
-index 4fd0d96ed..3d3b86342 100644
+index aca6aa174..14c02e4b6 100644
 --- a/apps/web/utils/mail-api/source.ts
 +++ b/apps/web/utils/mail-api/source.ts
-@@ -68,7 +68,8 @@ export function createEmailProviderMailboxSource(input: {
+@@ -73,7 +73,8 @@ export function createEmailProviderMailboxSource(input: {
              provider.localMailSyncStrategy === "folder-delta"
                ? "folder_delta"
                : "account_history",
@@ -1856,7 +1856,7 @@ index 4fd0d96ed..3d3b86342 100644
            maxPageSize,
            maxHydrationBatch: 20,
          },
-@@ -146,7 +147,8 @@ export function createEmailProviderMailboxSource(input: {
+@@ -149,7 +150,8 @@ export function createEmailProviderMailboxSource(input: {
                bootstrapId: "mailbox",
                scopeId: token.scopeId ?? "primary",
                changes,
@@ -1866,7 +1866,7 @@ index 4fd0d96ed..3d3b86342 100644
                bodies,
                nextPage: JSON.stringify({
                  afterMs: token.afterMs ?? 0,
-@@ -165,7 +167,8 @@ export function createEmailProviderMailboxSource(input: {
+@@ -168,7 +170,8 @@ export function createEmailProviderMailboxSource(input: {
              bootstrapId: "mailbox",
              scopeId: token.scopeId ?? "primary",
              changes,
@@ -1876,21 +1876,15 @@ index 4fd0d96ed..3d3b86342 100644
              bodies,
              nextPage: null,
              catchUpFrom: await finalCatchUpFrom({
-@@ -226,10 +229,13 @@ export function createEmailProviderMailboxSource(input: {
+@@ -231,7 +234,10 @@ export function createEmailProviderMailboxSource(input: {
              ],
              // Delta pages carry metadata only, so a body-derived flag such as
              // a meeting invitation must not stand in for the body.
--            requiredHydration: page.upsertedMessages.map((message) => ({
--              accountId,
--              messageId: message.id,
--            })),
+-            requiredHydration: patches.map((patch) => patch.key),
 +            requiredHydration:
 +              provider.name === "thunderbird"
 +                ? []
-+                : page.upsertedMessages.map((message) => ({
-+                    accountId,
-+                    messageId: message.id,
-+                  })),
++                : patches.map((patch) => patch.key),
              roundComplete: !page.hasMore,
            },
          };
@@ -2105,7 +2099,7 @@ index e0332a003..55b2ac0e5 100644
    },
  ) {
 diff --git a/turbo.json b/turbo.json
-index fc1c1acfb..6a0b164fa 100644
+index 083bd1f78..4c9e79c32 100644
 --- a/turbo.json
 +++ b/turbo.json
 @@ -16,6 +16,9 @@
@@ -2118,7 +2112,7 @@ index fc1c1acfb..6a0b164fa 100644
          "SCIM_CREDENTIAL_HASH_SECRET",
          "AUTH_ALLOWED_EMAILS",
          "AUTH_ALLOWED_EMAIL_DOMAINS",
-@@ -317,6 +320,9 @@
+@@ -321,6 +324,9 @@
          "MCP_ALLOW_PRIVATE_IPS",
          "DATABASE_URL",
          "AUTH_SECRET",
