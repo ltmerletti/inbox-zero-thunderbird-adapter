@@ -313,7 +313,7 @@ index 98a64e1c3..eb341f4c5 100644
                  onClearSelection={selection.clear}
                />
                {showSplitTabs && (
-@@ -1583,7 +1605,7 @@ export function MailShell() {
+@@ -1583,6 +1605,6 @@ export function MailShell() {
                  onMarkSpam={markSpamTargets}
                  onDelete={trashTargets}
                  onLabel={canLabel ? openLabelPicker : undefined}
@@ -321,7 +321,6 @@ index 98a64e1c3..eb341f4c5 100644
 +                onMove={canMove ? openMovePicker : undefined}
                  onTranslate={translateOpenThread}
                  onComment={openTeamComments}
-                 isMenuOpen={isMenuOpen}
 diff --git a/apps/web/app/(app)/[emailAccountId]/mail/MailShellSidebar.tsx b/apps/web/app/(app)/[emailAccountId]/mail/MailShellSidebar.tsx
 index 2a6be9e23..94ffc73d6 100644
 --- a/apps/web/app/(app)/[emailAccountId]/mail/MailShellSidebar.tsx
